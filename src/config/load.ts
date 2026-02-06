@@ -44,11 +44,16 @@ export const loadConfig = (): Config => {
       ? process.env.COREBOT_ALLOW_SHELL === "true"
       : undefined,
     allowedShellCommands: process.env.COREBOT_SHELL_ALLOWLIST
-      ? process.env.COREBOT_SHELL_ALLOWLIST.split(",").map((item) => item.trim())
+      ? process.env.COREBOT_SHELL_ALLOWLIST.split(",")
+          .map((item) => item.trim())
+          .filter(Boolean)
       : undefined,
     allowedEnv: process.env.COREBOT_ALLOWED_ENV
-      ? process.env.COREBOT_ALLOWED_ENV.split(",").map((item) => item.trim())
+      ? process.env.COREBOT_ALLOWED_ENV.split(",")
+          .map((item) => item.trim())
+          .filter(Boolean)
       : undefined,
+    adminBootstrapKey: process.env.COREBOT_ADMIN_BOOTSTRAP_KEY,
     provider: {
       type: "openai",
       apiKey: process.env.OPENAI_API_KEY,

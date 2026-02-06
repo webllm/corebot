@@ -1,8 +1,10 @@
 import type { InboundMessage, OutboundMessage } from "../types.js";
 import { AsyncQueue } from "./queue.js";
+import type { Logger } from "pino";
 
 export type InboundHandler = (message: InboundMessage) => Promise<void>;
 export type OutboundHandler = (message: OutboundMessage) => Promise<void>;
+type BusLogger = Pick<Logger, "error">;
 
 export class MessageBus {
   private inboundQueue = new AsyncQueue<InboundMessage>();
@@ -10,6 +12,11 @@ export class MessageBus {
   private inboundHandlers: InboundHandler[] = [];
   private outboundHandlers: OutboundHandler[] = [];
   private running = false;
+  private logger: BusLogger | null = null;
+
+  constructor(logger?: BusLogger) {
+    this.logger = logger ?? null;
+  }
 
   publishInbound(message: InboundMessage) {
     this.inboundQueue.push(message);
@@ -43,7 +50,11 @@ export class MessageBus {
         try {
           await handler(message);
         } catch (error) {
-          console.error("Inbound handler error:", error);
+          if (this.logger) {
+            this.logger.error({ error }, "Inbound handler error");
+          } else {
+            console.error("Inbound handler error:", error);
+          }
         }
       }
     }
@@ -56,7 +67,11 @@ export class MessageBus {
         try {
           await handler(message);
         } catch (error) {
-          console.error("Outbound handler error:", error);
+          if (this.logger) {
+            this.logger.error({ error }, "Outbound handler error");
+          } else {
+            console.error("Outbound handler error:", error);
+          }
         }
       }
     }

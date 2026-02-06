@@ -119,10 +119,17 @@ export class ConversationRouter {
       this.storage.countMessages(chat.id) > this.config.historyMaxMessages * 2;
     if (shouldCompact) {
       const state = this.storage.getConversationState(chat.id);
+      const summarySource = this.storage
+        .listRecentMessages(chat.id, this.config.historyMaxMessages * 2)
+        .flatMap((entry) =>
+          (entry.role === "user" || entry.role === "assistant") && entry.content
+            ? [{ role: entry.role as "user" | "assistant", content: entry.content }]
+            : []
+        );
       const summary = await compactConversation({
         provider: this.runtime.provider,
         config: this.config,
-        messages
+        messages: summarySource
       });
       this.storage.setConversationState({
         chatFk: chat.id,

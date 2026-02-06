@@ -69,7 +69,7 @@ const main = async () => {
   const provider = new OpenAICompatibleProvider(config);
   const runtime = new AgentRuntime(provider, toolRegistry, config, logger);
 
-  const bus = new MessageBus();
+  const bus = new MessageBus(logger);
   const contextBuilder = new ContextBuilder(storage, config, config.workspaceDir);
   const router = new ConversationRouter(
     storage,

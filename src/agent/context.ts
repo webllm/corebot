@@ -8,12 +8,22 @@ import type { SkillIndexEntry } from "../skills/types.js";
 const readIfExists = (filePath: string) =>
   fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf-8").trim() : "";
 
-const renderSkillsIndex = (skills: SkillIndexEntry[]) => {
+const renderSkillsIndex = (skills: SkillIndexEntry[], enabledSkills: Set<string>) => {
   if (skills.length === 0) {
     return "(no skills available)";
   }
   return skills
-    .map((skill) => `- ${skill.name}: ${skill.description}`)
+    .map((skill) => {
+      const flags: string[] = [];
+      if (skill.always) {
+        flags.push("always");
+      }
+      if (enabledSkills.has(skill.name)) {
+        flags.push("enabled");
+      }
+      const suffix = flags.length > 0 ? ` [${flags.join(", ")}]` : "";
+      return `- ${skill.name}${suffix}: ${skill.description}`;
+    })
     .join("\n");
 };
 
@@ -49,6 +59,7 @@ export class ContextBuilder {
     const contextMode =
       (params.inbound.metadata?.contextMode as string | undefined) ?? "group";
     const includeChatContext = !isScheduled || contextMode === "group";
+    const enabledSkills = new Set(state.enabledSkills);
 
     const systemSections: string[] = [];
     if (identity) {
@@ -66,7 +77,7 @@ export class ContextBuilder {
     if (includeChatContext && chatMemory) {
       systemSections.push(`# Chat Memory\n${chatMemory}`);
     }
-    systemSections.push("# Skills Index\n" + renderSkillsIndex(params.skills));
+    systemSections.push("# Skills Index\n" + renderSkillsIndex(params.skills, enabledSkills));
 
     const alwaysSkills = params.skills.filter((skill) => skill.always);
     if (alwaysSkills.length > 0) {
@@ -77,6 +88,19 @@ export class ContextBuilder {
         })
         .join("\n\n");
       systemSections.push(`# Always Skills\n${skillBodies}`);
+    }
+
+    const activeSkills = params.skills.filter(
+      (skill) => !skill.always && enabledSkills.has(skill.name)
+    );
+    if (activeSkills.length > 0) {
+      const skillBodies = activeSkills
+        .map((skill) => {
+          const content = readIfExists(skill.skillPath);
+          return `# Skill: ${skill.name}\n${content}`;
+        })
+        .join("\n\n");
+      systemSections.push(`# Enabled Skills\n${skillBodies}`);
     }
 
     if (includeChatContext && state.summary) {

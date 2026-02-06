@@ -28,6 +28,7 @@ export const ConfigSchema = z.object({
   allowShell: z.boolean().default(false),
   allowedShellCommands: z.array(z.string()).default([]),
   allowedEnv: z.array(z.string()).default([]),
+  adminBootstrapKey: z.string().optional(),
   cli: z
     .object({
       enabled: z.boolean().default(true)

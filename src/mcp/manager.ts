@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import path from "node:path";
 import type { ToolDefinition } from "../types.js";
 import type { McpConfigFile, McpServerConfig } from "./types.js";
 
@@ -83,30 +82,40 @@ export class McpManager {
     const toolDefs: ToolDefinition[] = [];
 
     for (const [name, config] of Object.entries(parsed.servers)) {
-      const serverConfig: McpServerConfig = { name, ...config };
-      if (serverConfig.disabled) {
-        continue;
-      }
-      const { client } = await this.factory.createClient(serverConfig);
-      this.clients.set(name, client);
-      const listResult = await client.listTools();
-      const tools = Array.isArray(listResult)
-        ? listResult
-        : (listResult as { tools?: unknown[] })?.tools ?? [];
-      for (const tool of tools as Array<{ name: string; description?: string; inputSchema?: Record<string, unknown> }>) {
-        const fullName = `mcp__${name}__${tool.name}`;
-        const info: McpToolInfo = {
-          server: name,
-          name: tool.name,
-          description: tool.description ?? "MCP tool",
-          inputSchema: tool.inputSchema ?? { type: "object", properties: {} }
-        };
-        this.tools.set(fullName, info);
-        toolDefs.push({
-          name: fullName,
-          description: info.description,
-          parameters: info.inputSchema
-        });
+      try {
+        const serverConfig: McpServerConfig = { name, ...config };
+        if (serverConfig.disabled) {
+          continue;
+        }
+
+        const { client } = await this.factory.createClient(serverConfig);
+        this.clients.set(name, client);
+        const listResult = await client.listTools();
+        const tools = Array.isArray(listResult)
+          ? listResult
+          : (listResult as { tools?: unknown[] })?.tools ?? [];
+
+        for (const tool of tools as Array<{
+          name: string;
+          description?: string;
+          inputSchema?: Record<string, unknown>;
+        }>) {
+          const fullName = `mcp__${name}__${tool.name}`;
+          const info: McpToolInfo = {
+            server: name,
+            name: tool.name,
+            description: tool.description ?? "MCP tool",
+            inputSchema: tool.inputSchema ?? { type: "object", properties: {} }
+          };
+          this.tools.set(fullName, info);
+          toolDefs.push({
+            name: fullName,
+            description: info.description,
+            parameters: info.inputSchema
+          });
+        }
+      } catch (error) {
+        console.warn(`[MCP] failed to load server '${name}':`, error);
       }
     }
 

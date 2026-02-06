@@ -33,11 +33,11 @@ node dist/main.js
 # Use a custom workspace/data directory
 COREBOT_WORKSPACE=./workspace COREBOT_DATA_DIR=./data npm run dev
 
-# Enable shell tool with allowlist
-COREBOT_ALLOW_SHELL=true COREBOT_SHELL_ALLOWLIST="ls,git status" npm run dev
+# Enable shell tool with executable allowlist
+COREBOT_ALLOW_SHELL=true COREBOT_SHELL_ALLOWLIST="ls,git" npm run dev
 
 # Enable web.search (Brave Search API)
-BRAVE_API_KEY=YOUR_KEY npm run dev
+BRAVE_API_KEY=YOUR_KEY COREBOT_ALLOWED_ENV=BRAVE_API_KEY npm run dev
 ```
 
 Example prompts (in CLI):
@@ -74,6 +74,7 @@ You can configure via `config.json` or environment variables.
   "allowShell": false,
   "allowedShellCommands": [],
   "allowedEnv": [],
+  "adminBootstrapKey": "",
   "cli": { "enabled": true }
 }
 ```
@@ -97,6 +98,11 @@ You can configure via `config.json` or environment variables.
 - `COREBOT_ALLOW_SHELL`
 - `COREBOT_SHELL_ALLOWLIST`
 - `COREBOT_ALLOWED_ENV`
+- `COREBOT_ADMIN_BOOTSTRAP_KEY`
+
+Notes:
+- `COREBOT_ALLOWED_ENV` is default-deny. Include keys explicitly (for example `BRAVE_API_KEY`) for tools that need env access.
+- `COREBOT_SHELL_ALLOWLIST` matches executable names (for example `ls,git`), not full command prefixes.
 
 ## Deployment Guide
 
@@ -172,7 +178,7 @@ jobs:
 - `memory.read`, `memory.write`
 - `message.send`, `chat.register`, `chat.set_role`
 - `tasks.schedule`, `tasks.list`, `tasks.update`
-- `skills.list`, `skills.read`
+- `skills.list`, `skills.read`, `skills.enable`, `skills.disable`, `skills.enabled`
 
 ## Skills
 

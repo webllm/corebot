@@ -38,17 +38,37 @@ export const messageTools = (): ToolSpec<any>[] => {
     schema: z.object({
       channel: z.string().optional(),
       chatId: z.string().optional(),
-      role: z.enum(["admin", "normal"]).optional()
+      role: z.enum(["admin", "normal"]).optional(),
+      bootstrapKey: z.string().optional()
     }),
     async run(args, ctx) {
       const channel = args.channel ?? ctx.chat.channel;
       const chatId = args.chatId ?? ctx.chat.chatId;
+      const isCrossChat = channel !== ctx.chat.channel || chatId !== ctx.chat.chatId;
       if (
-        (channel !== ctx.chat.channel || chatId !== ctx.chat.chatId) &&
+        isCrossChat &&
         ctx.chat.role !== "admin"
       ) {
         throw new Error("Only admin can register other chats.");
       }
+
+      if (args.role === "admin" && ctx.chat.role !== "admin") {
+        const bootstrapKey = ctx.config.adminBootstrapKey;
+        if (!bootstrapKey) {
+          throw new Error("Admin bootstrap is not configured.");
+        }
+        if (args.bootstrapKey !== bootstrapKey) {
+          throw new Error("Invalid admin bootstrap key.");
+        }
+        if (ctx.storage.countAdminChats() > 0) {
+          throw new Error("Admin already exists. Ask an admin to grant role.");
+        }
+      }
+
+      if (args.role && ctx.chat.role !== "admin" && args.role !== "admin") {
+        throw new Error("Only admin can set chat roles.");
+      }
+
       const chat = ctx.storage.upsertChat({ channel, chatId });
       ctx.storage.setChatRegistered(chat.id, true);
       if (args.role) {

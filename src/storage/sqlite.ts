@@ -219,10 +219,11 @@ export class SqliteStorage {
   }
 
   listTasks(chatFk?: string, includeInactive = true): TaskRecord[] {
-    const where = chatFk ? "WHERE chat_fk = ?" : "";
-    const rows = this.db
-      .prepare(`SELECT * FROM tasks ${where}`)
-      .all(chatFk ?? null) as Array<{
+    const rows = (chatFk
+      ? this.db
+          .prepare("SELECT * FROM tasks WHERE chat_fk = ?")
+          .all(chatFk)
+      : this.db.prepare("SELECT * FROM tasks").all()) as Array<{
       id: string;
       chat_fk: string;
       prompt: string;
@@ -247,6 +248,13 @@ export class SqliteStorage {
     return includeInactive
       ? mapped
       : mapped.filter((task) => task.status === "active");
+  }
+
+  countAdminChats(): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) as count FROM chats WHERE role = 'admin'")
+      .get() as { count: number };
+    return row?.count ?? 0;
   }
 
   updateTask(taskId: string, patch: Partial<TaskRecord>) {
