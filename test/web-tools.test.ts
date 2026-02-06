@@ -36,6 +36,58 @@ test("web.fetch blocks localhost and private-network targets", async () => {
   }
 });
 
+test("web.fetch enforces host allowlist when configured", async () => {
+  const fixture = createStorageFixture({
+    allowedWebDomains: ["allowed.example.com"]
+  });
+  try {
+    const chat = fixture.storage.upsertChat({ channel: "cli", chatId: "local" });
+    const { context } = createToolContext({
+      config: fixture.config,
+      storage: fixture.storage,
+      workspaceDir: fixture.workspaceDir,
+      chatFk: chat.id
+    });
+
+    const fetchTool = getTool("web.fetch");
+    await assert.rejects(
+      fetchTool.run({ url: "https://example.com" }, context),
+      /not in allowlist/
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("web.fetch allows hosts in allowlist", async () => {
+  const fixture = createStorageFixture({
+    allowedWebDomains: ["1.1.1.1"]
+  });
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () =>
+      new Response("ok", {
+        status: 200,
+        headers: { "content-type": "text/plain" }
+      })) as typeof fetch;
+
+    const chat = fixture.storage.upsertChat({ channel: "cli", chatId: "local" });
+    const { context } = createToolContext({
+      config: fixture.config,
+      storage: fixture.storage,
+      workspaceDir: fixture.workspaceDir,
+      chatFk: chat.id
+    });
+
+    const fetchTool = getTool("web.fetch");
+    const result = await fetchTool.run({ url: "https://1.1.1.1" }, context);
+    assert.match(result, /"status": 200/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    fixture.cleanup();
+  }
+});
+
 test("web.search is default-deny for env keys and works when explicitly allowed", async () => {
   const fixture = createStorageFixture();
   const originalFetch = globalThis.fetch;

@@ -53,7 +53,15 @@ export const loadConfig = (): Config => {
           .map((item) => item.trim())
           .filter(Boolean)
       : undefined,
+    allowedWebDomains: process.env.COREBOT_WEB_ALLOWLIST
+      ? process.env.COREBOT_WEB_ALLOWLIST.split(",")
+          .map((item) => item.trim().toLowerCase().replace(/^\*\./, ""))
+          .filter(Boolean)
+      : undefined,
     adminBootstrapKey: process.env.COREBOT_ADMIN_BOOTSTRAP_KEY,
+    adminBootstrapSingleUse: process.env.COREBOT_ADMIN_BOOTSTRAP_SINGLE_USE
+      ? process.env.COREBOT_ADMIN_BOOTSTRAP_SINGLE_USE === "true"
+      : undefined,
     provider: {
       type: "openai",
       apiKey: process.env.OPENAI_API_KEY,

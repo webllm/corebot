@@ -36,3 +36,14 @@ test("countAdminChats reflects admin role assignments", () => {
     fixture.cleanup();
   }
 });
+
+test("admin bootstrap usage flag is persisted in meta table", () => {
+  const fixture = createStorageFixture();
+  try {
+    assert.equal(fixture.storage.isAdminBootstrapUsed(), false);
+    fixture.storage.setAdminBootstrapUsed(true);
+    assert.equal(fixture.storage.isAdminBootstrapUsed(), true);
+  } finally {
+    fixture.cleanup();
+  }
+});

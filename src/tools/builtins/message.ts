@@ -52,13 +52,17 @@ export const messageTools = (): ToolSpec<any>[] => {
         throw new Error("Only admin can register other chats.");
       }
 
-      if (args.role === "admin" && ctx.chat.role !== "admin") {
+      const isBootstrapAdminElevation = args.role === "admin" && ctx.chat.role !== "admin";
+      if (isBootstrapAdminElevation) {
         const bootstrapKey = ctx.config.adminBootstrapKey;
         if (!bootstrapKey) {
           throw new Error("Admin bootstrap is not configured.");
         }
         if (args.bootstrapKey !== bootstrapKey) {
           throw new Error("Invalid admin bootstrap key.");
+        }
+        if (ctx.config.adminBootstrapSingleUse && ctx.storage.isAdminBootstrapUsed()) {
+          throw new Error("Admin bootstrap key has already been used.");
         }
         if (ctx.storage.countAdminChats() > 0) {
           throw new Error("Admin already exists. Ask an admin to grant role.");
@@ -73,6 +77,9 @@ export const messageTools = (): ToolSpec<any>[] => {
       ctx.storage.setChatRegistered(chat.id, true);
       if (args.role) {
         ctx.storage.setChatRole(chat.id, args.role);
+        if (isBootstrapAdminElevation && ctx.config.adminBootstrapSingleUse) {
+          ctx.storage.setAdminBootstrapUsed(true);
+        }
       }
       return "ok";
     }

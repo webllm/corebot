@@ -24,6 +24,27 @@ export class SqliteStorage {
       .run(String(migrations[migrations.length - 1]?.id ?? 0));
   }
 
+  private getMeta(key: string): string | null {
+    const row = this.db
+      .prepare("SELECT value FROM meta WHERE key = ?")
+      .get(key) as { value: string } | undefined;
+    return row?.value ?? null;
+  }
+
+  private setMeta(key: string, value: string) {
+    this.db
+      .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)")
+      .run(key, value);
+  }
+
+  isAdminBootstrapUsed(): boolean {
+    return this.getMeta("admin_bootstrap_used") === "1";
+  }
+
+  setAdminBootstrapUsed(used: boolean) {
+    this.setMeta("admin_bootstrap_used", used ? "1" : "0");
+  }
+
   upsertChat(params: {
     channel: string;
     chatId: string;

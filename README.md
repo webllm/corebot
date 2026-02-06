@@ -38,6 +38,9 @@ COREBOT_ALLOW_SHELL=true COREBOT_SHELL_ALLOWLIST="ls,git" npm run dev
 
 # Enable web.search (Brave Search API)
 BRAVE_API_KEY=YOUR_KEY COREBOT_ALLOWED_ENV=BRAVE_API_KEY npm run dev
+
+# Restrict web.fetch to specific hosts/domains
+COREBOT_WEB_ALLOWLIST="example.com,api.example.com" npm run dev
 ```
 
 Example prompts (in CLI):
@@ -74,7 +77,9 @@ You can configure via `config.json` or environment variables.
   "allowShell": false,
   "allowedShellCommands": [],
   "allowedEnv": [],
+  "allowedWebDomains": [],
   "adminBootstrapKey": "",
+  "adminBootstrapSingleUse": true,
   "cli": { "enabled": true }
 }
 ```
@@ -98,11 +103,15 @@ You can configure via `config.json` or environment variables.
 - `COREBOT_ALLOW_SHELL`
 - `COREBOT_SHELL_ALLOWLIST`
 - `COREBOT_ALLOWED_ENV`
+- `COREBOT_WEB_ALLOWLIST`
 - `COREBOT_ADMIN_BOOTSTRAP_KEY`
+- `COREBOT_ADMIN_BOOTSTRAP_SINGLE_USE`
 
 Notes:
 - `COREBOT_ALLOWED_ENV` is default-deny. Include keys explicitly (for example `BRAVE_API_KEY`) for tools that need env access.
 - `COREBOT_SHELL_ALLOWLIST` matches executable names (for example `ls,git`), not full command prefixes.
+- `COREBOT_WEB_ALLOWLIST` restricts `web.fetch` target hosts (exact host or subdomain match).
+- `COREBOT_ADMIN_BOOTSTRAP_SINGLE_USE=true` invalidates bootstrap elevation after first successful use.
 
 ## Deployment Guide
 

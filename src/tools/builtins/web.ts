@@ -5,6 +5,7 @@ import type { ToolSpec } from "../registry.js";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_RESPONSE_CHARS = 200_000;
+const normalizeDomain = (value: string) => value.trim().toLowerCase().replace(/^\*\./, "");
 
 const isPrivateIpv4 = (ip: string): boolean => {
   const parts = ip.split(".").map((part) => Number(part));
@@ -64,7 +65,17 @@ const isPrivateAddress = (ip: string): boolean => {
   return true;
 };
 
-const assertPublicUrl = async (url: URL) => {
+const isAllowedHostname = (hostname: string, allowedDomains: string[]): boolean => {
+  if (allowedDomains.length === 0) {
+    return true;
+  }
+
+  return allowedDomains
+    .map(normalizeDomain)
+    .some((domain) => hostname === domain || hostname.endsWith(`.${domain}`));
+};
+
+const assertPublicUrl = async (url: URL, allowedDomains: string[]) => {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error("Only http/https URLs are allowed.");
   }
@@ -72,6 +83,9 @@ const assertPublicUrl = async (url: URL) => {
   const hostname = url.hostname.toLowerCase();
   if (hostname === "localhost" || hostname.endsWith(".localhost")) {
     throw new Error("Localhost access is blocked.");
+  }
+  if (!isAllowedHostname(hostname, allowedDomains)) {
+    throw new Error("Target host is not in allowlist.");
   }
 
   if (isIP(hostname) > 0) {
@@ -137,9 +151,9 @@ export const webTools = (): ToolSpec<any>[] => {
         .max(1_000_000)
         .default(DEFAULT_MAX_RESPONSE_CHARS)
     }),
-    async run(args) {
+    async run(args, ctx) {
       const url = new URL(args.url);
-      await assertPublicUrl(url);
+      await assertPublicUrl(url, ctx.config.allowedWebDomains);
       const timeoutMs = args.timeoutMs ?? DEFAULT_TIMEOUT_MS;
       const maxResponseChars = args.maxResponseChars ?? DEFAULT_MAX_RESPONSE_CHARS;
 

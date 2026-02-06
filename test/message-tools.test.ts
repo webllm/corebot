@@ -33,6 +33,8 @@ test("chat.register blocks admin escalation without valid bootstrap", async () =
 
     await tool.run({ role: "admin", bootstrapKey: "secret" }, context);
     assert.equal(fixture.storage.countAdminChats(), 1);
+    fixture.storage.setChatRole(chat.id, "normal");
+    assert.equal(fixture.storage.countAdminChats(), 0);
 
     const other = fixture.storage.upsertChat({ channel: "cli", chatId: "other" });
     const { context: otherContext } = createToolContext({
@@ -47,8 +49,46 @@ test("chat.register blocks admin escalation without valid bootstrap", async () =
 
     await assert.rejects(
       tool.run({ role: "admin", bootstrapKey: "secret" }, otherContext),
-      /Admin already exists/
+      /already been used/
     );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("chat.register can reuse bootstrap key when single-use is disabled", async () => {
+  const fixture = createStorageFixture({
+    adminBootstrapKey: "secret",
+    adminBootstrapSingleUse: false
+  });
+  try {
+    const first = fixture.storage.upsertChat({ channel: "cli", chatId: "first" });
+    const second = fixture.storage.upsertChat({ channel: "cli", chatId: "second" });
+    const tool = getRegisterTool();
+
+    const firstContext = createToolContext({
+      config: fixture.config,
+      storage: fixture.storage,
+      workspaceDir: fixture.workspaceDir,
+      chatFk: first.id,
+      chatRole: "normal",
+      chatId: "first",
+      channel: "cli"
+    }).context;
+    await tool.run({ role: "admin", bootstrapKey: "secret" }, firstContext);
+    fixture.storage.setChatRole(first.id, "normal");
+
+    const secondContext = createToolContext({
+      config: fixture.config,
+      storage: fixture.storage,
+      workspaceDir: fixture.workspaceDir,
+      chatFk: second.id,
+      chatRole: "normal",
+      chatId: "second",
+      channel: "cli"
+    }).context;
+    await tool.run({ role: "admin", bootstrapKey: "secret" }, secondContext);
+    assert.equal(fixture.storage.countAdminChats(), 1);
   } finally {
     fixture.cleanup();
   }
