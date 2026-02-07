@@ -1,5 +1,7 @@
+import path from "node:path";
 import { validateWebTargetByPolicy } from "./web-guard.js";
 import type { ToolContext } from "./registry.js";
+import { resolveWorkspacePath } from "../util/file.js";
 
 export type PolicyDecision = {
   allowed: boolean;
@@ -23,6 +25,30 @@ const asRecord = (value: unknown): Record<string, unknown> =>
 const asString = (value: unknown): string | undefined =>
   typeof value === "string" ? value : undefined;
 
+const NON_ADMIN_PROTECTED_WRITE_PATHS = new Set([
+  "IDENTITY.md",
+  "TOOLS.md",
+  "USER.md",
+  ".mcp.json"
+]);
+
+const NON_ADMIN_PROTECTED_WRITE_PREFIXES = [
+  "skills/"
+];
+
+const toWorkspaceRelativePath = (
+  workspaceDir: string,
+  targetPath: string
+): string | null => {
+  try {
+    const resolved = resolveWorkspacePath(workspaceDir, targetPath);
+    const relative = path.relative(path.resolve(workspaceDir), resolved);
+    return relative.split(path.sep).join("/");
+  } catch {
+    return null;
+  }
+};
+
 export class DefaultToolPolicyEngine implements ToolPolicyEngine {
   async authorize(params: {
     toolName: string;
@@ -44,6 +70,27 @@ export class DefaultToolPolicyEngine implements ToolPolicyEngine {
     if (toolName === "memory.write" && role !== "admin") {
       if (record.scope === "global") {
         return deny("Only admin can write global memory.");
+      }
+    }
+
+    if (toolName === "fs.write" && role !== "admin") {
+      const targetPath = asString(record.path);
+      if (!targetPath) {
+        return deny("fs.write requires path.");
+      }
+      const relativePath = toWorkspaceRelativePath(ctx.workspaceDir, targetPath);
+      if (!relativePath) {
+        return deny("Path is outside workspace.");
+      }
+      if (NON_ADMIN_PROTECTED_WRITE_PATHS.has(relativePath)) {
+        return deny("Only admin can modify protected workspace files.");
+      }
+      const hitsProtectedPrefix = NON_ADMIN_PROTECTED_WRITE_PREFIXES.some((prefix) => {
+        const root = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
+        return relativePath === root || relativePath.startsWith(prefix);
+      });
+      if (hitsProtectedPrefix) {
+        return deny("Only admin can modify protected workspace files.");
       }
     }
 

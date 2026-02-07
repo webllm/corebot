@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ToolRegistry } from "../src/tools/registry.js";
 import { DefaultToolPolicyEngine } from "../src/tools/policy.js";
+import { fsTools } from "../src/tools/builtins/fs.js";
 import { shellTools } from "../src/tools/builtins/shell.js";
 import { messageTools } from "../src/tools/builtins/message.js";
 import { taskTools } from "../src/tools/builtins/tasks.js";
@@ -62,6 +63,59 @@ test("policy engine allows shell.exec for admin", async () => {
       context
     );
     assert.equal(output, "hello");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("policy engine blocks non-admin fs.write on protected workspace paths", async () => {
+  const fixture = createStorageFixture();
+  try {
+    const chat = fixture.storage.upsertChat({ channel: "cli", chatId: "local" });
+    const registry = new ToolRegistry(new DefaultToolPolicyEngine());
+    for (const tool of fsTools()) {
+      registry.register(tool);
+    }
+    const { context } = createToolContext({
+      config: fixture.config,
+      storage: fixture.storage,
+      workspaceDir: fixture.workspaceDir,
+      chatFk: chat.id,
+      chatRole: "normal"
+    });
+
+    await assert.rejects(
+      registry.execute("fs.write", { path: "skills/new-skill/SKILL.md", content: "body" }, context),
+      /Policy denied fs.write/
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("policy engine allows admin fs.write on protected workspace paths", async () => {
+  const fixture = createStorageFixture();
+  try {
+    const chat = fixture.storage.upsertChat({ channel: "cli", chatId: "local" });
+    fixture.storage.setChatRole(chat.id, "admin");
+    const registry = new ToolRegistry(new DefaultToolPolicyEngine());
+    for (const tool of fsTools()) {
+      registry.register(tool);
+    }
+    const { context } = createToolContext({
+      config: fixture.config,
+      storage: fixture.storage,
+      workspaceDir: fixture.workspaceDir,
+      chatFk: chat.id,
+      chatRole: "admin"
+    });
+
+    const result = await registry.execute(
+      "fs.write",
+      { path: "skills/new-skill/SKILL.md", content: "# Skill\nBody" },
+      context
+    );
+    assert.equal(result, "ok");
   } finally {
     fixture.cleanup();
   }

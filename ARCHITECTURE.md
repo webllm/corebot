@@ -277,6 +277,7 @@ erDiagram
 - **Workspace sandbox** for file access.
 - **Shell execution** disabled by default (allowlist optional).
 - **Env filtering**: only allowlisted env vars available to tools.
+- **Policy guardrails**: non-admin `fs.write` cannot modify protected paths (`skills/`, `IDENTITY.md`, `TOOLS.md`, `USER.md`, `.mcp.json`).
 - **Tool output truncation** to avoid large prompts/logs.
 
 Optional container isolation can be added later for stronger protection.

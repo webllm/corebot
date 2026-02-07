@@ -146,6 +146,7 @@ Notes:
 - `COREBOT_WEB_ALLOWLIST` restricts `web.fetch` target hosts (exact host or subdomain match).
 - `COREBOT_WEB_ALLOWED_PORTS` and `COREBOT_WEB_BLOCKED_PORTS` provide port allow/deny controls for `web.fetch`.
 - `COREBOT_ISOLATION_TOOLS` defaults to `shell.exec`; add `web.fetch` and/or `fs.write` to isolate network and file-write execution as well.
+- Default policy denies non-admin `fs.write` to protected paths (`skills/`, `IDENTITY.md`, `TOOLS.md`, `USER.md`, `.mcp.json`).
 - `COREBOT_ADMIN_BOOTSTRAP_SINGLE_USE=true` invalidates bootstrap elevation after first successful use.
 - `COREBOT_ADMIN_BOOTSTRAP_MAX_ATTEMPTS` and `COREBOT_ADMIN_BOOTSTRAP_LOCKOUT_MINUTES` control invalid-key lockout policy.
 
