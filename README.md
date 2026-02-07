@@ -25,6 +25,20 @@ Single-process by default, tool- and skill-driven, MCP-ready, and safe-by-defaul
 - **Migration safety** with pre-migration backups and migration history
 - **Persistent audit events** for tool execution, denials, and errors
 
+## CLI and SDK
+
+- CLI: `corebot` (or `pnpm run dev` / `pnpm run start`)
+- SDK: import from `@corebot/core` and manage lifecycle via `createCorebotApp()`
+
+```ts
+import { createCorebotApp, loadConfig } from "@corebot/core";
+
+const app = await createCorebotApp({ config: loadConfig() });
+await app.start();
+// ...
+await app.stop();
+```
+
 ## Quick Start
 
 ```bash
@@ -48,7 +62,7 @@ Type in the CLI prompt to chat. Use `/exit` to quit.
 ```bash
 # Build + run production bundle locally
 pnpm run build
-node dist/main.js
+node dist/bin.js
 
 # Use a custom workspace/data directory
 COREBOT_WORKSPACE=./workspace COREBOT_DATA_DIR=./data pnpm run dev
