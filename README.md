@@ -16,34 +16,42 @@ Single-process by default, tool- and skill-driven, MCP-ready, and safe-by-defaul
 ## Quick Start
 
 ```bash
-npm install
+pnpm install --frozen-lockfile
 export OPENAI_API_KEY=YOUR_KEY
-npm run dev
+pnpm run dev
 ```
 
 Type in the CLI prompt to chat. Use `/exit` to quit.
+
+## Package Manager and Lockfile Policy
+
+- Use `pnpm` only (`packageManager` is pinned in `package.json`).
+- Commit both `pnpm-lock.yaml` and `pnpm-workspace.yaml`.
+- Install with `pnpm install --frozen-lockfile` in local reproducible runs, CI, and Docker.
+- Keep build-script approvals explicit in `pnpm-workspace.yaml` (`onlyBuiltDependencies`).
+- If a newly added dependency needs lifecycle scripts, run `pnpm approve-builds` and commit the updated policy file.
 
 ## Example Commands
 
 ```bash
 # Build + run production bundle locally
-npm run build
+pnpm run build
 node dist/main.js
 
 # Use a custom workspace/data directory
-COREBOT_WORKSPACE=./workspace COREBOT_DATA_DIR=./data npm run dev
+COREBOT_WORKSPACE=./workspace COREBOT_DATA_DIR=./data pnpm run dev
 
 # Enable shell tool with executable allowlist
-COREBOT_ALLOW_SHELL=true COREBOT_SHELL_ALLOWLIST="ls,git" npm run dev
+COREBOT_ALLOW_SHELL=true COREBOT_SHELL_ALLOWLIST="ls,git" pnpm run dev
 
 # Enable web.search (Brave Search API)
-BRAVE_API_KEY=YOUR_KEY COREBOT_ALLOWED_ENV=BRAVE_API_KEY npm run dev
+BRAVE_API_KEY=YOUR_KEY COREBOT_ALLOWED_ENV=BRAVE_API_KEY pnpm run dev
 
 # Restrict web.fetch to specific hosts/domains
-COREBOT_WEB_ALLOWLIST="example.com,api.example.com" npm run dev
+COREBOT_WEB_ALLOWLIST="example.com,api.example.com" pnpm run dev
 
 # Restrict web.fetch ports
-COREBOT_WEB_ALLOWED_PORTS="443,8443" COREBOT_WEB_BLOCKED_PORTS="8080" npm run dev
+COREBOT_WEB_ALLOWED_PORTS="443,8443" COREBOT_WEB_BLOCKED_PORTS="8080" pnpm run dev
 ```
 
 Example prompts (in CLI):
@@ -130,8 +138,8 @@ Notes:
 
 1) **Build**  
 ```bash
-npm install
-npm run build
+pnpm install --frozen-lockfile
+pnpm run build
 ```
 
 2) **Run**  
@@ -184,12 +192,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-      - run: npm ci
-      - run: npm run build
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
 ```
 
 ## Built-in Tools

@@ -434,12 +434,22 @@ sequenceDiagram
 ## 18) Quick Start
 
 ```bash
-npm install
+pnpm install --frozen-lockfile
 export OPENAI_API_KEY=YOUR_KEY
-npm run dev
+pnpm run dev
 ```
 
 Type into the CLI prompt to interact with Corebot.
+
+---
+
+## 19) Package Manager and Reproducible Build Policy
+
+- Standardize on `pnpm` only (pinned via `packageManager` in `package.json`).
+- Commit and review both `pnpm-lock.yaml` and `pnpm-workspace.yaml`.
+- Use `pnpm install --frozen-lockfile` in local reproducible runs, CI, and Docker.
+- Maintain explicit build-script approvals through `pnpm-workspace.yaml` (`onlyBuiltDependencies`).
+- For new native/build-script dependencies, run `pnpm approve-builds` and commit policy updates together with lockfile changes.
 
 ---
 

@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.28.1",
   "engines": {
     "node": ">=20"
   },
@@ -12,7 +13,7 @@
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test test/**/*.test.ts",
-    "verify": "npm run typecheck && npm run test"
+    "verify": "pnpm run typecheck && pnpm run test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
