@@ -141,6 +141,17 @@ test("bus.dead_letter.replay requeues dead-lettered inbound and processes it", a
     const counts = fixture.storage.countBusMessagesByStatus("inbound");
     assert.equal(counts.dead_letter, 0);
     assert.equal(counts.processed, 1);
+
+    const replayAgain = await registry.execute(
+      "bus.dead_letter.replay",
+      { queueId: queued.queueId },
+      context
+    );
+    const parsedAgain = JSON.parse(replayAgain) as { replayed: number; ids: string[] };
+    assert.equal(parsedAgain.replayed, 0);
+    assert.deepEqual(parsedAgain.ids, []);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(handled, 1);
   } finally {
     bus.stop();
     fixture.cleanup();
