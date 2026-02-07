@@ -1,7 +1,13 @@
 import Database from "better-sqlite3";
 import type { Config } from "../config/schema.js";
 import { migrations } from "./migrations.js";
-import type { ChatRecord, ConversationState, TaskRecord } from "../types.js";
+import type {
+  BusMessageDirection,
+  BusQueueRecord,
+  ChatRecord,
+  ConversationState,
+  TaskRecord
+} from "../types.js";
 import { nowIso } from "../util/time.js";
 import { newId } from "../util/ids.js";
 
@@ -70,6 +76,240 @@ export class SqliteStorage {
       return;
     }
     this.db.prepare("DELETE FROM meta WHERE key = ?").run("admin_bootstrap_lock_until");
+  }
+
+  enqueueBusMessage(params: {
+    direction: BusMessageDirection;
+    payload: unknown;
+    maxAttempts: number;
+    availableAt?: string;
+  }): string {
+    const id = newId();
+    const now = nowIso();
+    this.db
+      .prepare(
+        "INSERT INTO message_queue(id, direction, payload, status, attempts, max_attempts, available_at, created_at, updated_at, claimed_at, processed_at, dead_lettered_at, last_error) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)"
+      )
+      .run(
+        id,
+        params.direction,
+        JSON.stringify(params.payload),
+        "pending",
+        0,
+        params.maxAttempts,
+        params.availableAt ?? now,
+        now,
+        now,
+        null,
+        null,
+        null,
+        null
+      );
+    return id;
+  }
+
+  listDueBusMessages(
+    direction: BusMessageDirection,
+    now: string,
+    limit: number
+  ): BusQueueRecord[] {
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM message_queue WHERE direction = ? AND status = 'pending' AND available_at <= ? ORDER BY created_at ASC LIMIT ?"
+      )
+      .all(direction, now, limit) as Array<{
+      id: string;
+      direction: string;
+      payload: string;
+      status: string;
+      attempts: number;
+      max_attempts: number;
+      available_at: string;
+      created_at: string;
+      updated_at: string;
+      claimed_at: string | null;
+      processed_at: string | null;
+      dead_lettered_at: string | null;
+      last_error: string | null;
+    }>;
+    return rows.map((row) => ({
+      id: row.id,
+      direction: row.direction as BusQueueRecord["direction"],
+      payload: row.payload,
+      status: row.status as BusQueueRecord["status"],
+      attempts: row.attempts,
+      maxAttempts: row.max_attempts,
+      availableAt: row.available_at,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      claimedAt: row.claimed_at,
+      processedAt: row.processed_at,
+      deadLetteredAt: row.dead_lettered_at,
+      lastError: row.last_error
+    }));
+  }
+
+  claimBusMessage(id: string, claimedAt: string): boolean {
+    const result = this.db
+      .prepare(
+        "UPDATE message_queue SET status = 'processing', claimed_at = ?, updated_at = ? WHERE id = ? AND status = 'pending'"
+      )
+      .run(claimedAt, claimedAt, id);
+    return result.changes > 0;
+  }
+
+  markBusMessageProcessed(id: string, processedAt: string) {
+    this.db
+      .prepare(
+        "UPDATE message_queue SET status = 'processed', processed_at = ?, updated_at = ?, claimed_at = NULL WHERE id = ?"
+      )
+      .run(processedAt, processedAt, id);
+  }
+
+  markBusMessageRetry(params: {
+    id: string;
+    attempts: number;
+    availableAt: string;
+    error: string;
+    updatedAt: string;
+  }) {
+    this.db
+      .prepare(
+        "UPDATE message_queue SET status = 'pending', attempts = ?, available_at = ?, last_error = ?, updated_at = ?, claimed_at = NULL WHERE id = ?"
+      )
+      .run(params.attempts, params.availableAt, params.error, params.updatedAt, params.id);
+  }
+
+  markBusMessageDeadLetter(params: {
+    id: string;
+    attempts: number;
+    error: string;
+    deadLetteredAt: string;
+  }) {
+    this.db
+      .prepare(
+        "UPDATE message_queue SET status = 'dead_letter', attempts = ?, last_error = ?, dead_lettered_at = ?, updated_at = ?, claimed_at = NULL WHERE id = ?"
+      )
+      .run(
+        params.attempts,
+        params.error,
+        params.deadLetteredAt,
+        params.deadLetteredAt,
+        params.id
+      );
+  }
+
+  recoverStaleProcessingBusMessages(params: {
+    staleBefore: string;
+    now: string;
+    retryBackoffMs: number;
+  }): { requeued: number; deadLettered: number } {
+    const staleRows = this.db
+      .prepare(
+        "SELECT id, attempts, max_attempts FROM message_queue WHERE status = 'processing' AND claimed_at IS NOT NULL AND claimed_at <= ?"
+      )
+      .all(params.staleBefore) as Array<{
+      id: string;
+      attempts: number;
+      max_attempts: number;
+    }>;
+
+    let requeued = 0;
+    let deadLettered = 0;
+
+    for (const row of staleRows) {
+      const nextAttempts = row.attempts + 1;
+      if (nextAttempts >= row.max_attempts) {
+        this.markBusMessageDeadLetter({
+          id: row.id,
+          attempts: nextAttempts,
+          error: "Recovered stale processing message exceeded max attempts.",
+          deadLetteredAt: params.now
+        });
+        deadLettered += 1;
+      } else {
+        const availableAt = new Date(
+          new Date(params.now).getTime() + params.retryBackoffMs
+        ).toISOString();
+        this.markBusMessageRetry({
+          id: row.id,
+          attempts: nextAttempts,
+          availableAt,
+          error: "Recovered stale processing message; requeued.",
+          updatedAt: params.now
+        });
+        requeued += 1;
+      }
+    }
+
+    return { requeued, deadLettered };
+  }
+
+  countBusMessagesByStatus(direction?: BusMessageDirection) {
+    const rows = (direction
+      ? this.db
+          .prepare(
+            "SELECT status, COUNT(*) as count FROM message_queue WHERE direction = ? GROUP BY status"
+          )
+          .all(direction)
+      : this.db
+          .prepare("SELECT status, COUNT(*) as count FROM message_queue GROUP BY status")
+          .all()) as Array<{ status: string; count: number }>;
+    const counts = {
+      pending: 0,
+      processing: 0,
+      processed: 0,
+      dead_letter: 0
+    };
+    for (const row of rows) {
+      if (row.status in counts) {
+        counts[row.status as keyof typeof counts] = row.count;
+      }
+    }
+    return counts;
+  }
+
+  listDeadLetterBusMessages(direction?: BusMessageDirection, limit = 100): BusQueueRecord[] {
+    const rows = (direction
+      ? this.db
+          .prepare(
+            "SELECT * FROM message_queue WHERE status = 'dead_letter' AND direction = ? ORDER BY dead_lettered_at DESC LIMIT ?"
+          )
+          .all(direction, limit)
+      : this.db
+          .prepare(
+            "SELECT * FROM message_queue WHERE status = 'dead_letter' ORDER BY dead_lettered_at DESC LIMIT ?"
+          )
+          .all(limit)) as Array<{
+      id: string;
+      direction: string;
+      payload: string;
+      status: string;
+      attempts: number;
+      max_attempts: number;
+      available_at: string;
+      created_at: string;
+      updated_at: string;
+      claimed_at: string | null;
+      processed_at: string | null;
+      dead_lettered_at: string | null;
+      last_error: string | null;
+    }>;
+    return rows.map((row) => ({
+      id: row.id,
+      direction: row.direction as BusQueueRecord["direction"],
+      payload: row.payload,
+      status: row.status as BusQueueRecord["status"],
+      attempts: row.attempts,
+      maxAttempts: row.max_attempts,
+      availableAt: row.available_at,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      claimedAt: row.claimed_at,
+      processedAt: row.processed_at,
+      deadLetteredAt: row.dead_lettered_at,
+      lastError: row.last_error
+    }));
   }
 
   upsertChat(params: {

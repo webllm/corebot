@@ -64,5 +64,29 @@ export const migrations: Migration[] = [
         error TEXT
       );
     `
+  },
+  {
+    id: 2,
+    sql: `
+      CREATE TABLE IF NOT EXISTS message_queue (
+        id TEXT PRIMARY KEY,
+        direction TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 5,
+        available_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        claimed_at TEXT,
+        processed_at TEXT,
+        dead_lettered_at TEXT,
+        last_error TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_message_queue_fetch
+        ON message_queue(direction, status, available_at, created_at);
+      CREATE INDEX IF NOT EXISTS idx_message_queue_dead
+        ON message_queue(status, dead_lettered_at);
+    `
   }
 ];

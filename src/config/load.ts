@@ -56,6 +56,26 @@ export const loadConfig = (): Config => {
       : undefined,
     skillsDir: process.env.COREBOT_SKILLS_DIR,
     mcpConfigPath: process.env.COREBOT_MCP_CONFIG,
+    bus: {
+      pollMs: process.env.COREBOT_BUS_POLL_MS
+        ? Number(process.env.COREBOT_BUS_POLL_MS)
+        : undefined,
+      batchSize: process.env.COREBOT_BUS_BATCH_SIZE
+        ? Number(process.env.COREBOT_BUS_BATCH_SIZE)
+        : undefined,
+      maxAttempts: process.env.COREBOT_BUS_MAX_ATTEMPTS
+        ? Number(process.env.COREBOT_BUS_MAX_ATTEMPTS)
+        : undefined,
+      retryBackoffMs: process.env.COREBOT_BUS_RETRY_BACKOFF_MS
+        ? Number(process.env.COREBOT_BUS_RETRY_BACKOFF_MS)
+        : undefined,
+      maxRetryBackoffMs: process.env.COREBOT_BUS_MAX_RETRY_BACKOFF_MS
+        ? Number(process.env.COREBOT_BUS_MAX_RETRY_BACKOFF_MS)
+        : undefined,
+      processingTimeoutMs: process.env.COREBOT_BUS_PROCESSING_TIMEOUT_MS
+        ? Number(process.env.COREBOT_BUS_PROCESSING_TIMEOUT_MS)
+        : undefined
+    },
     allowShell: process.env.COREBOT_ALLOW_SHELL
       ? process.env.COREBOT_ALLOW_SHELL === "true"
       : undefined,
@@ -90,6 +110,10 @@ export const loadConfig = (): Config => {
   const parsed = ConfigSchema.safeParse({
     ...fileConfig,
     ...envConfig,
+    bus: {
+      ...(typeof fileConfig.bus === "object" ? fileConfig.bus : {}),
+      ...(typeof envConfig.bus === "object" ? envConfig.bus : {})
+    },
     provider: {
       ...(typeof fileConfig.provider === "object" ? fileConfig.provider : {}),
       ...(typeof envConfig.provider === "object" ? envConfig.provider : {})

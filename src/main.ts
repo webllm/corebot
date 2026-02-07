@@ -69,7 +69,7 @@ const main = async () => {
   const provider = new OpenAICompatibleProvider(config);
   const runtime = new AgentRuntime(provider, toolRegistry, config, logger);
 
-  const bus = new MessageBus(logger);
+  const bus = new MessageBus(storage, config, logger);
   const contextBuilder = new ContextBuilder(storage, config, config.workspaceDir);
   const router = new ConversationRouter(
     storage,
@@ -107,6 +107,7 @@ const main = async () => {
   process.on("SIGINT", async () => {
     logger.info("Shutting down...");
     scheduler.stop();
+    bus.stop();
     await mcpManager.shutdown();
     storage.close();
     process.exit(0);

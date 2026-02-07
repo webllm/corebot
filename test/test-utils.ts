@@ -30,6 +30,14 @@ export const createConfig = (
     skillsDir: path.join(workspaceDir, "skills"),
     mcpConfigPath: path.join(workspaceDir, ".mcp.json"),
     scheduler: { tickMs: 60_000 },
+    bus: {
+      pollMs: 50,
+      batchSize: 20,
+      maxAttempts: 3,
+      retryBackoffMs: 20,
+      maxRetryBackoffMs: 200,
+      processingTimeoutMs: 500
+    },
     allowShell: false,
     allowedShellCommands: [],
     allowedEnv: [],
@@ -48,6 +56,7 @@ export const createConfig = (
     ...overrides,
     provider: { ...base.provider, ...(overrides.provider ?? {}) },
     scheduler: { ...base.scheduler, ...(overrides.scheduler ?? {}) },
+    bus: { ...base.bus, ...(overrides.bus ?? {}) },
     cli: { ...base.cli, ...(overrides.cli ?? {}) }
   };
 };

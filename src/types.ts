@@ -42,6 +42,8 @@ export type ConversationState = {
 export type TaskScheduleType = "cron" | "interval" | "once";
 export type TaskContextMode = "group" | "isolated";
 export type TaskStatus = "active" | "paused" | "done";
+export type BusMessageDirection = "inbound" | "outbound";
+export type BusMessageStatus = "pending" | "processing" | "processed" | "dead_letter";
 
 export type TaskRecord = {
   id: string;
@@ -53,6 +55,22 @@ export type TaskRecord = {
   status: TaskStatus;
   nextRunAt: string | null;
   createdAt: string;
+};
+
+export type BusQueueRecord = {
+  id: string;
+  direction: BusMessageDirection;
+  payload: string;
+  status: BusMessageStatus;
+  attempts: number;
+  maxAttempts: number;
+  availableAt: string;
+  createdAt: string;
+  updatedAt: string;
+  claimedAt: string | null;
+  processedAt: string | null;
+  deadLetteredAt: string | null;
+  lastError: string | null;
 };
 
 export type ToolCall = {
