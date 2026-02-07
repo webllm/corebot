@@ -10,6 +10,7 @@ import { compactConversation } from "../agent/compact.js";
 import { newId } from "../util/ids.js";
 import { nowIso } from "../util/time.js";
 import type { McpManager } from "../mcp/manager.js";
+import type { IsolatedToolRuntime } from "../isolation/runtime.js";
 
 class SerialQueue {
   private tail = Promise.resolve();
@@ -35,7 +36,8 @@ export class ConversationRouter {
     private bus: MessageBus,
     private logger: Logger,
     private config: Config,
-    private skills: SkillIndexEntry[]
+    private skills: SkillIndexEntry[],
+    private isolatedRuntime?: IsolatedToolRuntime
   ) {}
 
   handleInbound = async (message: InboundMessage) => {
@@ -65,7 +67,8 @@ export class ConversationRouter {
       logger: this.logger,
       bus: this.bus,
       config: this.config,
-      skills: this.skills
+      skills: this.skills,
+      isolatedRuntime: this.isolatedRuntime
     };
 
     const start = Date.now();

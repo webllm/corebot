@@ -5,6 +5,7 @@ import type { Config } from "../src/config/schema.js";
 import { SqliteStorage } from "../src/storage/sqlite.js";
 import type { ToolContext } from "../src/tools/registry.js";
 import type { SkillIndexEntry } from "../src/skills/types.js";
+import type { IsolatedToolRuntime } from "../src/isolation/runtime.js";
 
 export const createConfig = (
   workspaceDir: string,
@@ -42,6 +43,12 @@ export const createConfig = (
       enabled: false,
       reportIntervalMs: 5_000
     },
+    isolation: {
+      enabled: true,
+      toolNames: ["shell.exec"],
+      workerTimeoutMs: 30_000,
+      maxWorkerOutputChars: 250_000
+    },
     allowShell: false,
     allowedShellCommands: [],
     allowedEnv: [],
@@ -62,6 +69,7 @@ export const createConfig = (
     scheduler: { ...base.scheduler, ...(overrides.scheduler ?? {}) },
     bus: { ...base.bus, ...(overrides.bus ?? {}) },
     observability: { ...base.observability, ...(overrides.observability ?? {}) },
+    isolation: { ...base.isolation, ...(overrides.isolation ?? {}) },
     cli: { ...base.cli, ...(overrides.cli ?? {}) }
   };
 };
@@ -107,6 +115,7 @@ export const createToolContext = (params: {
   chatRole?: "admin" | "normal";
   chatFk?: string;
   skills?: SkillIndexEntry[];
+  isolatedRuntime?: IsolatedToolRuntime;
 }) => {
   const outbound: Array<{ channel: string; chatId: string; content: string }> = [];
   const chat = {
@@ -132,7 +141,8 @@ export const createToolContext = (params: {
       start: () => undefined
     } as any,
     config: params.config,
-    skills: params.skills ?? []
+    skills: params.skills ?? [],
+    isolatedRuntime: params.isolatedRuntime
   };
 
   return { context, outbound };

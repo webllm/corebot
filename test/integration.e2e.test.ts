@@ -97,7 +97,8 @@ const createHarness = (provider: LlmProvider) => {
     bus,
     logger,
     fixture.config,
-    []
+    [],
+    undefined
   );
   bus.onInbound(router.handleInbound);
 

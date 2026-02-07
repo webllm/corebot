@@ -15,6 +15,7 @@ import { McpManager } from "./mcp/manager.js";
 import { SkillLoader } from "./skills/loader.js";
 import { CliChannel } from "./channels/cli.js";
 import { Scheduler } from "./scheduler/scheduler.js";
+import { IsolatedToolRuntime } from "./isolation/runtime.js";
 import type { ToolContext } from "./tools/registry.js";
 
 const formatMcpResult = (result: unknown): string => {
@@ -50,6 +51,7 @@ const main = async () => {
   const skills = skillLoader.listSkills();
 
   const mcpManager = new McpManager({ logger });
+  const isolatedRuntime = new IsolatedToolRuntime(config, logger);
   const toolRegistry = new ToolRegistry(new DefaultToolPolicyEngine(), telemetry);
 
   for (const tool of builtInTools()) {
@@ -82,7 +84,8 @@ const main = async () => {
     bus,
     logger,
     config,
-    skills
+    skills,
+    isolatedRuntime
   );
 
   bus.onInbound(router.handleInbound);
@@ -133,6 +136,7 @@ const main = async () => {
     if (observabilityTimer) {
       clearInterval(observabilityTimer);
     }
+    await isolatedRuntime.shutdown();
     await mcpManager.shutdown();
     storage.close();
     process.exit(0);

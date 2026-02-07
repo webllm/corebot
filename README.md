@@ -12,6 +12,7 @@ Single-process by default, tool- and skill-driven, MCP-ready, and safe-by-defaul
 - **SQLite storage** for chats, messages, summaries, and tasks
 - **Scheduler** with `cron | interval | once`
 - **CLI channel** for local usage (other channels stubbed)
+- **Isolated tool runtime** for high-risk tools (process sandbox v1)
 
 ## Quick Start
 
@@ -85,6 +86,12 @@ You can configure via `config.json` or environment variables.
   "skillsDir": "workspace/skills",
   "mcpConfigPath": ".mcp.json",
   "scheduler": { "tickMs": 60000 },
+  "isolation": {
+    "enabled": true,
+    "toolNames": ["shell.exec"],
+    "workerTimeoutMs": 30000,
+    "maxWorkerOutputChars": 250000
+  },
   "allowShell": false,
   "allowedShellCommands": [],
   "allowedEnv": [],
@@ -115,6 +122,10 @@ You can configure via `config.json` or environment variables.
 - `COREBOT_MAX_TOOL_OUTPUT`
 - `COREBOT_SKILLS_DIR`
 - `COREBOT_MCP_CONFIG`
+- `COREBOT_ISOLATION_ENABLED`
+- `COREBOT_ISOLATION_TOOLS`
+- `COREBOT_ISOLATION_WORKER_TIMEOUT_MS`
+- `COREBOT_ISOLATION_MAX_WORKER_OUTPUT_CHARS`
 - `COREBOT_ALLOW_SHELL`
 - `COREBOT_SHELL_ALLOWLIST`
 - `COREBOT_ALLOWED_ENV`
@@ -131,6 +142,7 @@ Notes:
 - `COREBOT_SHELL_ALLOWLIST` matches executable names (for example `ls,git`), not full command prefixes.
 - `COREBOT_WEB_ALLOWLIST` restricts `web.fetch` target hosts (exact host or subdomain match).
 - `COREBOT_WEB_ALLOWED_PORTS` and `COREBOT_WEB_BLOCKED_PORTS` provide port allow/deny controls for `web.fetch`.
+- `COREBOT_ISOLATION_TOOLS` defaults to `shell.exec`; this tool runs in an isolated worker process with minimal env exposure.
 - `COREBOT_ADMIN_BOOTSTRAP_SINGLE_USE=true` invalidates bootstrap elevation after first successful use.
 - `COREBOT_ADMIN_BOOTSTRAP_MAX_ATTEMPTS` and `COREBOT_ADMIN_BOOTSTRAP_LOCKOUT_MINUTES` control invalid-key lockout policy.
 

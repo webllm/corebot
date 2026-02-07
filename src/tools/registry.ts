@@ -9,6 +9,7 @@ import type { SkillIndexEntry } from "../skills/types.js";
 import type { Logger } from "pino";
 import type { ToolPolicyEngine } from "./policy.js";
 import type { RuntimeTelemetry } from "../observability/telemetry.js";
+import type { IsolatedToolRuntime } from "../isolation/runtime.js";
 
 export type ToolContext = {
   workspaceDir: string;
@@ -19,6 +20,7 @@ export type ToolContext = {
   bus: MessageBus;
   config: Config;
   skills: SkillIndexEntry[];
+  isolatedRuntime?: IsolatedToolRuntime;
 };
 
 export interface ToolSpec<TArgs extends z.ZodTypeAny> {

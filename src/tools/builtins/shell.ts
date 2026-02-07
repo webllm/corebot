@@ -65,7 +65,32 @@ const tokenizeCommand = (input: string): string[] => {
   return tokens;
 };
 
-const runCommand = async (params: {
+const resolveCommandInvocation = (params: {
+  command: string;
+  allowShell: boolean;
+  allowedShellCommands: string[];
+}): { file: string; args: string[] } => {
+  if (!params.allowShell) {
+    throw new Error("Shell execution is disabled.");
+  }
+
+  const tokens = tokenizeCommand(params.command);
+  if (tokens.length === 0) {
+    throw new Error("Command is empty.");
+  }
+  const [file, ...fileArgs] = tokens;
+
+  if (params.allowedShellCommands.length > 0) {
+    const allowed = params.allowedShellCommands.includes(file);
+    if (!allowed) {
+      throw new Error("Executable not in allowlist.");
+    }
+  }
+
+  return { file, args: fileArgs };
+};
+
+const runDirectCommand = async (params: {
   file: string;
   args: string[];
   cwd: string;
@@ -118,38 +143,40 @@ const runCommand = async (params: {
 export const shellTools = (): ToolSpec<any>[] => {
   const shellExec: ToolSpec<z.ZodTypeAny> = {
     name: "shell.exec",
-    description: "Execute a shell command within the workspace (restricted).",
+    description:
+      "Execute a shell command within the workspace using isolated runtime when enabled.",
     schema: z.object({
       command: z.string(),
       cwd: z.string().optional(),
       timeoutMs: z.number().int().min(1_000).max(MAX_TIMEOUT_MS).default(DEFAULT_TIMEOUT_MS)
     }),
     async run(args, ctx) {
-      if (!ctx.config.allowShell) {
-        throw new Error("Shell execution is disabled.");
-      }
-
-      const tokens = tokenizeCommand(args.command);
-      if (tokens.length === 0) {
-        throw new Error("Command is empty.");
-      }
-      const [file, ...fileArgs] = tokens;
-
-      if (ctx.config.allowedShellCommands.length > 0) {
-        const allowed = ctx.config.allowedShellCommands.includes(file);
-        if (!allowed) {
-          throw new Error("Executable not in allowlist.");
-        }
-      }
-
+      const invocation = resolveCommandInvocation({
+        command: args.command,
+        allowShell: ctx.config.allowShell,
+        allowedShellCommands: ctx.config.allowedShellCommands
+      });
       const cwd = args.cwd
         ? resolveWorkspacePath(ctx.workspaceDir, args.cwd)
         : ctx.workspaceDir;
       const timeoutMs = args.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-      return runCommand({
-        file,
-        args: fileArgs,
+      const isolatedRuntime = ctx.isolatedRuntime;
+      if (isolatedRuntime?.isToolIsolated("shell.exec")) {
+        return isolatedRuntime.executeShell({
+          command: args.command,
+          cwd,
+          timeoutMs,
+          allowShell: ctx.config.allowShell,
+          allowedShellCommands: ctx.config.allowedShellCommands,
+          allowedEnvKeys: ctx.config.allowedEnv,
+          maxOutputChars: ctx.config.maxToolOutputChars
+        });
+      }
+
+      return runDirectCommand({
+        file: invocation.file,
+        args: invocation.args,
         cwd,
         timeoutMs
       });

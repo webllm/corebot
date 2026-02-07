@@ -9,7 +9,7 @@
 
 - **Powerful**: Multi-channel adapters, tool calling, skills, memory, scheduler, MCP integrations.
 - **Lightweight**: Minimal dependencies, single Node.js process, no distributed components by default.
-- **Safe-by-default**: Workspace sandbox for files, optional shell allowlist, optional container isolation later.
+- **Safe-by-default**: Workspace sandbox for files, optional shell allowlist, and isolated process execution for high-risk tools.
 - **Extensible**: Tools from built-ins, MCP servers, and Skills (prompt plugins).
 - **Operable**: Structured logs, local SQLite storage, task run logs.
 
@@ -115,6 +115,7 @@ export interface LlmProvider {
 ### 6.2 Tool-Calling Loop
 - Max tool iterations (`maxToolIterations`, default 8).
 - Each tool call executed via `ToolRegistry.execute()`.
+- High-risk tools can run in a dedicated isolated worker process (`isolation` config).
 - Tool output size capped (`maxToolOutputChars`).
 - Returns final response or a fallback if tool loop exhausts.
 
@@ -402,6 +403,8 @@ sequenceDiagram
 - `COREBOT_SQLITE_PATH`, `COREBOT_WORKSPACE`
 - `COREBOT_ALLOW_SHELL` + `COREBOT_SHELL_ALLOWLIST`
 - `COREBOT_ALLOWED_ENV`
+- `COREBOT_ISOLATION_ENABLED`, `COREBOT_ISOLATION_TOOLS`
+- `COREBOT_ISOLATION_WORKER_TIMEOUT_MS`, `COREBOT_ISOLATION_MAX_WORKER_OUTPUT_CHARS`
 - `COREBOT_HISTORY_MAX`, `COREBOT_MAX_TOOL_ITER`
 - `COREBOT_MCP_CONFIG`
 

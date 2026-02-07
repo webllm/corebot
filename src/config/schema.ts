@@ -41,6 +41,14 @@ export const ConfigSchema = z.object({
       reportIntervalMs: z.number().int().min(1_000).default(30_000)
     })
     .default({}),
+  isolation: z
+    .object({
+      enabled: z.boolean().default(true),
+      toolNames: z.array(z.string()).default(["shell.exec"]),
+      workerTimeoutMs: z.number().int().min(1_000).default(30_000),
+      maxWorkerOutputChars: z.number().int().min(1_000).max(2_000_000).default(250_000)
+    })
+    .default({}),
   allowShell: z.boolean().default(false),
   allowedShellCommands: z.array(z.string()).default([]),
   allowedEnv: z.array(z.string()).default([]),

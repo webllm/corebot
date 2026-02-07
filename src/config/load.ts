@@ -84,6 +84,18 @@ export const loadConfig = (): Config => {
         ? Number(process.env.COREBOT_OBS_REPORT_MS)
         : undefined
     },
+    isolation: {
+      enabled: process.env.COREBOT_ISOLATION_ENABLED
+        ? process.env.COREBOT_ISOLATION_ENABLED === "true"
+        : undefined,
+      toolNames: parseCsv(process.env.COREBOT_ISOLATION_TOOLS),
+      workerTimeoutMs: process.env.COREBOT_ISOLATION_WORKER_TIMEOUT_MS
+        ? Number(process.env.COREBOT_ISOLATION_WORKER_TIMEOUT_MS)
+        : undefined,
+      maxWorkerOutputChars: process.env.COREBOT_ISOLATION_MAX_WORKER_OUTPUT_CHARS
+        ? Number(process.env.COREBOT_ISOLATION_MAX_WORKER_OUTPUT_CHARS)
+        : undefined
+    },
     allowShell: process.env.COREBOT_ALLOW_SHELL
       ? process.env.COREBOT_ALLOW_SHELL === "true"
       : undefined,
@@ -129,6 +141,10 @@ export const loadConfig = (): Config => {
       ...(typeof envConfig.observability === "object"
         ? envConfig.observability
         : {})
+    },
+    isolation: {
+      ...(typeof fileConfig.isolation === "object" ? fileConfig.isolation : {}),
+      ...(typeof envConfig.isolation === "object" ? envConfig.isolation : {})
     },
     provider: {
       ...(typeof fileConfig.provider === "object" ? fileConfig.provider : {}),
