@@ -13,7 +13,9 @@
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test test/**/*.test.ts",
-    "verify": "pnpm run typecheck && pnpm run test"
+    "verify": "pnpm run typecheck && pnpm run test",
+    "ops:db:backup": "tsx scripts/db-backup.ts",
+    "ops:db:restore": "tsx scripts/db-restore.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
