@@ -11,7 +11,7 @@
 - **Lightweight**: Minimal dependencies, single Node.js process, no distributed components by default.
 - **Safe-by-default**: Workspace sandbox for files, optional shell allowlist, and isolated process execution for high-risk tools.
 - **Extensible**: Tools from built-ins, MCP servers, and Skills (prompt plugins).
-- **Operable**: Structured logs, local SQLite storage, task run logs.
+- **Operable**: Structured logs, SQLite persistence, health endpoints, and runtime metrics/SLO alerts.
 
 ---
 
@@ -71,6 +71,7 @@ flowchart TD
 - Async queue for inbound/outbound messages.
 - Simple, single-process, low overhead.
 - Idempotent publish by message id (duplicates collapse to the same queue record).
+- Backpressure controls (queue caps, overload backoff) and per-chat rate limits.
 
 ### 4.2 ConversationRouter
 - **Per-conversation serialization**: avoid concurrent message context races.
@@ -151,6 +152,7 @@ Unifies three tool sources:
 - Connects to each server (stdio or SSE URL)
 - Uses MCP `tools/list` to register tool schemas
 - Calls `tools/call` when tool is invoked
+- Applies server/tool allowlists before registration.
 
 ### 8.2 MCP Server (Optional)
 - Can expose host capabilities (message sending, scheduler, memory, admin ops)
@@ -203,6 +205,7 @@ Task execution modes:
 - **isolated**: minimal context (self-contained tasks)
 
 Scheduler ticks on configurable interval and emits synthetic inbound messages.
+Retries after downstream failures stay idempotent through inbound execution ledger + deterministic IDs.
 Task run logs are recorded in `task_runs`.
 
 ---
@@ -272,6 +275,8 @@ erDiagram
 - Full message storage only for **registered chats** or if `storeFullMessages=true`.
 - Always store assistant + tool outputs.
 - Conversation compaction runs when message count grows beyond threshold.
+- Pre-migration backups + migration history enable rollback on schema failures.
+- Tool execution audit trail is persisted in `audit_events`.
 
 ---
 
@@ -281,6 +286,7 @@ erDiagram
 - **Shell execution** disabled by default (allowlist optional).
 - **Env filtering**: only allowlisted env vars available to tools.
 - **Policy guardrails**: non-admin `fs.write` cannot modify protected paths (`skills/`, `IDENTITY.md`, `TOOLS.md`, `USER.md`, `.mcp.json`).
+- **MCP allowlist**: only explicitly allowed servers/tools are registered or callable.
 - **Isolation bulkhead + circuit breaker**: worker concurrency cap and per-tool fail-open cooldown.
 - **Tool output truncation** to avoid large prompts/logs.
 
