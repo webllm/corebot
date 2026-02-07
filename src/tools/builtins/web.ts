@@ -2,10 +2,10 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { z } from "zod";
 import type { ToolSpec } from "../registry.js";
+import { validateWebTargetByPolicy } from "../web-guard.js";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_RESPONSE_CHARS = 200_000;
-const normalizeDomain = (value: string) => value.trim().toLowerCase().replace(/^\*\./, "");
 
 const isPrivateIpv4 = (ip: string): boolean => {
   const parts = ip.split(".").map((part) => Number(part));
@@ -65,27 +65,6 @@ const isPrivateAddress = (ip: string): boolean => {
   return true;
 };
 
-const getPort = (url: URL): number => {
-  if (url.port) {
-    const parsed = Number(url.port);
-    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
-      throw new Error("Invalid target port.");
-    }
-    return parsed;
-  }
-  return url.protocol === "https:" ? 443 : 80;
-};
-
-const isAllowedHostname = (hostname: string, allowedDomains: string[]): boolean => {
-  if (allowedDomains.length === 0) {
-    return true;
-  }
-
-  return allowedDomains
-    .map(normalizeDomain)
-    .some((domain) => hostname === domain || hostname.endsWith(`.${domain}`));
-};
-
 const assertPublicUrl = async (
   url: URL,
   rules: { allowedDomains: string[]; allowedPorts: number[]; blockedPorts: number[] }
@@ -93,20 +72,19 @@ const assertPublicUrl = async (
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error("Only http/https URLs are allowed.");
   }
-  const port = getPort(url);
-  if (rules.blockedPorts.includes(port)) {
-    throw new Error(`Target port ${port} is blocked.`);
-  }
-  if (rules.allowedPorts.length > 0 && !rules.allowedPorts.includes(port)) {
-    throw new Error(`Target port ${port} is not in allowlist.`);
+
+  const policyError = validateWebTargetByPolicy(url, {
+    allowedWebDomains: rules.allowedDomains,
+    allowedWebPorts: rules.allowedPorts,
+    blockedWebPorts: rules.blockedPorts
+  });
+  if (policyError) {
+    throw new Error(policyError);
   }
 
   const hostname = url.hostname.toLowerCase();
   if (hostname === "localhost" || hostname.endsWith(".localhost")) {
     throw new Error("Localhost access is blocked.");
-  }
-  if (!isAllowedHostname(hostname, rules.allowedDomains)) {
-    throw new Error("Target host is not in allowlist.");
   }
 
   if (isIP(hostname) > 0) {

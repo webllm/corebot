@@ -8,6 +8,7 @@ import { ConversationRouter } from "./bus/router.js";
 import { ContextBuilder } from "./agent/context.js";
 import { AgentRuntime, OpenAICompatibleProvider } from "./agent/runtime.js";
 import { ToolRegistry } from "./tools/registry.js";
+import { DefaultToolPolicyEngine } from "./tools/policy.js";
 import { builtInTools } from "./tools/builtins/index.js";
 import { McpManager } from "./mcp/manager.js";
 import { SkillLoader } from "./skills/loader.js";
@@ -47,7 +48,7 @@ const main = async () => {
   const skills = skillLoader.listSkills();
 
   const mcpManager = new McpManager();
-  const toolRegistry = new ToolRegistry();
+  const toolRegistry = new ToolRegistry(new DefaultToolPolicyEngine());
 
   for (const tool of builtInTools()) {
     toolRegistry.register(tool);

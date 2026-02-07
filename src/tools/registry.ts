@@ -7,6 +7,7 @@ import type { MessageBus } from "../bus/bus.js";
 import type { Config } from "../config/schema.js";
 import type { SkillIndexEntry } from "../skills/types.js";
 import type { Logger } from "pino";
+import type { ToolPolicyEngine } from "./policy.js";
 
 export type ToolContext = {
   workspaceDir: string;
@@ -29,6 +30,8 @@ export interface ToolSpec<TArgs extends z.ZodTypeAny> {
 export class ToolRegistry {
   private tools = new Map<string, ToolSpec<z.ZodTypeAny>>();
   private toolDefs: ToolDefinition[] = [];
+
+  constructor(private policyEngine?: ToolPolicyEngine) {}
 
   register<TArgs extends z.ZodTypeAny>(tool: ToolSpec<TArgs>) {
     this.tools.set(tool.name, tool as unknown as ToolSpec<z.ZodTypeAny>);
@@ -66,6 +69,16 @@ export class ToolRegistry {
     const parsed = tool.schema.safeParse(args);
     if (!parsed.success) {
       throw new Error(`Invalid arguments for ${name}: ${parsed.error.message}`);
+    }
+    if (this.policyEngine) {
+      const decision = await this.policyEngine.authorize({
+        toolName: name,
+        args: parsed.data,
+        ctx
+      });
+      if (!decision.allowed) {
+        throw new Error(`Policy denied ${name}: ${decision.reason ?? "access denied"}`);
+      }
     }
     const result = await tool.run(parsed.data, ctx);
     if (result.length > ctx.config.maxToolOutputChars) {
