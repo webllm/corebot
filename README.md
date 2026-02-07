@@ -29,6 +29,7 @@ Single-process by default, tool- and skill-driven, MCP-ready, and safe-by-defaul
 
 - CLI: `corebot` (or `pnpm run dev` / `pnpm run start`)
 - SDK: import from `@corebot/core` and manage lifecycle via `createCorebotApp()`
+- CLI flags: `corebot --help`, `corebot --version`
 
 ```ts
 import { createCorebotApp, loadConfig } from "@corebot/core";

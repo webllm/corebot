@@ -41,6 +41,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test test/**/*.test.ts",
     "verify": "pnpm run typecheck && pnpm run test",
+    "smoke:package": "tsx scripts/smoke-package.ts",
     "ops:db:backup": "tsx scripts/db-backup.ts",
     "ops:db:restore": "tsx scripts/db-restore.ts",
     "commit": "pnpm git-cz"

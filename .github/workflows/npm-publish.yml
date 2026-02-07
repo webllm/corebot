@@ -23,6 +23,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run verify
       - run: pnpm run build
+      - run: pnpm run smoke:package
       - run: npm publish --provenance
         env:
           NODE_AUTH_TOKEN: ${{secrets.NODE_AUTH_TOKEN}}
