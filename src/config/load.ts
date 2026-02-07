@@ -74,6 +74,24 @@ export const loadConfig = (): Config => {
         : undefined,
       processingTimeoutMs: process.env.COREBOT_BUS_PROCESSING_TIMEOUT_MS
         ? Number(process.env.COREBOT_BUS_PROCESSING_TIMEOUT_MS)
+        : undefined,
+      maxPendingInbound: process.env.COREBOT_BUS_MAX_PENDING_INBOUND
+        ? Number(process.env.COREBOT_BUS_MAX_PENDING_INBOUND)
+        : undefined,
+      maxPendingOutbound: process.env.COREBOT_BUS_MAX_PENDING_OUTBOUND
+        ? Number(process.env.COREBOT_BUS_MAX_PENDING_OUTBOUND)
+        : undefined,
+      overloadPendingThreshold: process.env.COREBOT_BUS_OVERLOAD_PENDING_THRESHOLD
+        ? Number(process.env.COREBOT_BUS_OVERLOAD_PENDING_THRESHOLD)
+        : undefined,
+      overloadBackoffMs: process.env.COREBOT_BUS_OVERLOAD_BACKOFF_MS
+        ? Number(process.env.COREBOT_BUS_OVERLOAD_BACKOFF_MS)
+        : undefined,
+      perChatRateLimitWindowMs: process.env.COREBOT_BUS_CHAT_RATE_WINDOW_MS
+        ? Number(process.env.COREBOT_BUS_CHAT_RATE_WINDOW_MS)
+        : undefined,
+      perChatRateLimitMax: process.env.COREBOT_BUS_CHAT_RATE_MAX
+        ? Number(process.env.COREBOT_BUS_CHAT_RATE_MAX)
         : undefined
     },
     observability: {
@@ -82,7 +100,40 @@ export const loadConfig = (): Config => {
         : undefined,
       reportIntervalMs: process.env.COREBOT_OBS_REPORT_MS
         ? Number(process.env.COREBOT_OBS_REPORT_MS)
-        : undefined
+        : undefined,
+      http: {
+        enabled: process.env.COREBOT_OBS_HTTP_ENABLED
+          ? process.env.COREBOT_OBS_HTTP_ENABLED === "true"
+          : undefined,
+        host: process.env.COREBOT_OBS_HTTP_HOST,
+        port: process.env.COREBOT_OBS_HTTP_PORT
+          ? Number(process.env.COREBOT_OBS_HTTP_PORT)
+          : undefined
+      }
+    },
+    slo: {
+      enabled: process.env.COREBOT_SLO_ENABLED
+        ? process.env.COREBOT_SLO_ENABLED === "true"
+        : undefined,
+      alertCooldownMs: process.env.COREBOT_SLO_ALERT_COOLDOWN_MS
+        ? Number(process.env.COREBOT_SLO_ALERT_COOLDOWN_MS)
+        : undefined,
+      maxPendingQueue: process.env.COREBOT_SLO_MAX_PENDING_QUEUE
+        ? Number(process.env.COREBOT_SLO_MAX_PENDING_QUEUE)
+        : undefined,
+      maxDeadLetterQueue: process.env.COREBOT_SLO_MAX_DEAD_LETTER_QUEUE
+        ? Number(process.env.COREBOT_SLO_MAX_DEAD_LETTER_QUEUE)
+        : undefined,
+      maxToolFailureRate: process.env.COREBOT_SLO_MAX_TOOL_FAILURE_RATE
+        ? Number(process.env.COREBOT_SLO_MAX_TOOL_FAILURE_RATE)
+        : undefined,
+      maxSchedulerDelayMs: process.env.COREBOT_SLO_MAX_SCHEDULER_DELAY_MS
+        ? Number(process.env.COREBOT_SLO_MAX_SCHEDULER_DELAY_MS)
+        : undefined,
+      maxMcpFailureRate: process.env.COREBOT_SLO_MAX_MCP_FAILURE_RATE
+        ? Number(process.env.COREBOT_SLO_MAX_MCP_FAILURE_RATE)
+        : undefined,
+      alertWebhookUrl: process.env.COREBOT_SLO_ALERT_WEBHOOK_URL
     },
     isolation: {
       enabled: process.env.COREBOT_ISOLATION_ENABLED
@@ -115,6 +166,8 @@ export const loadConfig = (): Config => {
     ),
     allowedWebPorts: parseNumberCsv(process.env.COREBOT_WEB_ALLOWED_PORTS),
     blockedWebPorts: parseNumberCsv(process.env.COREBOT_WEB_BLOCKED_PORTS),
+    allowedMcpServers: parseCsv(process.env.COREBOT_MCP_ALLOWED_SERVERS),
+    allowedMcpTools: parseCsv(process.env.COREBOT_MCP_ALLOWED_TOOLS),
     adminBootstrapKey: process.env.COREBOT_ADMIN_BOOTSTRAP_KEY,
     adminBootstrapSingleUse: process.env.COREBOT_ADMIN_BOOTSTRAP_SINGLE_USE
       ? process.env.COREBOT_ADMIN_BOOTSTRAP_SINGLE_USE === "true"
@@ -125,6 +178,20 @@ export const loadConfig = (): Config => {
     adminBootstrapLockoutMinutes: process.env.COREBOT_ADMIN_BOOTSTRAP_LOCKOUT_MINUTES
       ? Number(process.env.COREBOT_ADMIN_BOOTSTRAP_LOCKOUT_MINUTES)
       : undefined,
+    webhook: {
+      enabled: process.env.COREBOT_WEBHOOK_ENABLED
+        ? process.env.COREBOT_WEBHOOK_ENABLED === "true"
+        : undefined,
+      host: process.env.COREBOT_WEBHOOK_HOST,
+      port: process.env.COREBOT_WEBHOOK_PORT
+        ? Number(process.env.COREBOT_WEBHOOK_PORT)
+        : undefined,
+      path: process.env.COREBOT_WEBHOOK_PATH,
+      authToken: process.env.COREBOT_WEBHOOK_AUTH_TOKEN,
+      maxBodyBytes: process.env.COREBOT_WEBHOOK_MAX_BODY_BYTES
+        ? Number(process.env.COREBOT_WEBHOOK_MAX_BODY_BYTES)
+        : undefined
+    },
     provider: {
       type: "openai",
       apiKey: process.env.OPENAI_API_KEY,
@@ -149,11 +216,27 @@ export const loadConfig = (): Config => {
         : {}),
       ...(typeof envConfig.observability === "object"
         ? envConfig.observability
-        : {})
+        : {}),
+      http: {
+        ...((typeof (fileConfig.observability as any)?.http === "object"
+          ? (fileConfig.observability as any).http
+          : {}) as Record<string, unknown>),
+        ...((typeof (envConfig.observability as any)?.http === "object"
+          ? (envConfig.observability as any).http
+          : {}) as Record<string, unknown>)
+      }
+    },
+    slo: {
+      ...(typeof fileConfig.slo === "object" ? fileConfig.slo : {}),
+      ...(typeof envConfig.slo === "object" ? envConfig.slo : {})
     },
     isolation: {
       ...(typeof fileConfig.isolation === "object" ? fileConfig.isolation : {}),
       ...(typeof envConfig.isolation === "object" ? envConfig.isolation : {})
+    },
+    webhook: {
+      ...(typeof fileConfig.webhook === "object" ? fileConfig.webhook : {}),
+      ...(typeof envConfig.webhook === "object" ? envConfig.webhook : {})
     },
     provider: {
       ...(typeof fileConfig.provider === "object" ? fileConfig.provider : {}),

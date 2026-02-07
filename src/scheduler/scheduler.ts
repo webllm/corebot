@@ -35,6 +35,10 @@ export class Scheduler {
     }
   }
 
+  isRunning() {
+    return this.timer !== null;
+  }
+
   private async tick() {
     const now = new Date();
     const due = this.storage.dueTasks(now.toISOString());

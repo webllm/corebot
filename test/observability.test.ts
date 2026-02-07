@@ -1,12 +1,38 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import net from "node:net";
+import http from "node:http";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { RuntimeTelemetry } from "../src/observability/telemetry.js";
+import { ObservabilityServer } from "../src/observability/server.js";
+import { SloMonitor } from "../src/observability/slo.js";
 import { Scheduler } from "../src/scheduler/scheduler.js";
 import { McpManager } from "../src/mcp/manager.js";
 import { createStorageFixture } from "./test-utils.js";
+
+const getFreePort = () =>
+  new Promise<number>((resolve, reject) => {
+    const server = net.createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        server.close();
+        reject(new Error("failed to allocate port"));
+        return;
+      }
+      const port = address.port;
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(port);
+      });
+    });
+  });
 
 test("RuntimeTelemetry aggregates tool and scheduler metrics", () => {
   const telemetry = new RuntimeTelemetry();
@@ -133,5 +159,161 @@ test("McpManager exposes health snapshot with call stats", async () => {
   } finally {
     await manager.shutdown();
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("ObservabilityServer exposes health and metrics endpoints", async () => {
+  const fixture = createStorageFixture({
+    observability: {
+      enabled: true,
+      reportIntervalMs: 5_000,
+      http: {
+        enabled: true,
+        host: "127.0.0.1",
+        port: await getFreePort()
+      }
+    }
+  });
+  const logger = {
+    info: () => undefined,
+    warn: () => undefined,
+    error: () => undefined
+  } as any;
+
+  const server = new ObservabilityServer(fixture.config, logger, {
+    startedAtMs: Date.now() - 1_000,
+    getQueue: () => ({
+      inbound: { pending: 1, processing: 0, processed: 2, dead_letter: 0 },
+      outbound: { pending: 0, processing: 0, processed: 1, dead_letter: 0 }
+    }),
+    getTelemetry: () => ({
+      tools: {
+        totals: { calls: 3, failures: 1, failureRate: 1 / 3 },
+        byName: [
+          {
+            name: "memory.write",
+            calls: 1,
+            failures: 0,
+            failureRate: 0,
+            avgLatencyMs: 12,
+            maxLatencyMs: 12
+          }
+        ]
+      },
+      scheduler: {
+        dispatches: 1,
+        tasks: 2,
+        avgDelayMs: 25,
+        maxDelayMs: 40
+      }
+    }),
+    getMcp: () => ({
+      remote: {
+        status: "healthy",
+        tools: 2,
+        calls: 5,
+        failures: 1,
+        lastCheckedAt: new Date().toISOString()
+      }
+    }),
+    isReady: () => true,
+    isStartupComplete: () => true
+  });
+
+  try {
+    await server.start();
+    const base = `http://${fixture.config.observability.http.host}:${fixture.config.observability.http.port}`;
+
+    const live = await fetch(`${base}/health/live`);
+    assert.equal(live.status, 200);
+
+    const ready = await fetch(`${base}/health/ready`);
+    assert.equal(ready.status, 200);
+
+    const metrics = await fetch(`${base}/metrics`);
+    assert.equal(metrics.status, 200);
+    const text = await metrics.text();
+    assert.match(text, /corebot_health_ready 1/);
+    assert.match(text, /corebot_queue_pending\{direction="inbound"\} 1/);
+    assert.match(text, /corebot_mcp_calls_total\{server="remote"\} 5/);
+
+    const status = await fetch(`${base}/status`);
+    assert.equal(status.status, 200);
+    const body = (await status.json()) as { health?: { ready?: boolean } };
+    assert.equal(body.health?.ready, true);
+  } finally {
+    await server.stop();
+    fixture.cleanup();
+  }
+});
+
+test("SloMonitor emits alert once per cooldown and supports webhook publish", async () => {
+  const alerts: unknown[] = [];
+  const port = await getFreePort();
+  const webhook = http.createServer((req, res) => {
+    if (req.method === "POST" && req.url === "/alerts") {
+      alerts.push({ at: Date.now() });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end("{}");
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  await new Promise<void>((resolve, reject) => {
+    webhook.once("error", reject);
+    webhook.listen(port, "127.0.0.1", () => resolve());
+  });
+
+  const fixture = createStorageFixture({
+    slo: {
+      enabled: true,
+      alertCooldownMs: 60_000,
+      maxPendingQueue: 1,
+      maxDeadLetterQueue: 0,
+      maxToolFailureRate: 0.01,
+      maxSchedulerDelayMs: 1,
+      maxMcpFailureRate: 0.01,
+      alertWebhookUrl: `http://127.0.0.1:${port}/alerts`
+    }
+  });
+
+  let warnCount = 0;
+  const monitor = new SloMonitor(fixture.config, {
+    warn: () => {
+      warnCount += 1;
+    }
+  } as any);
+
+  try {
+    const sample = {
+      queue: {
+        inbound: { pending: 2, processing: 0, processed: 0, dead_letter: 1 },
+        outbound: { pending: 1, processing: 0, processed: 0, dead_letter: 1 }
+      },
+      telemetry: {
+        tools: { totals: { calls: 10, failures: 5, failureRate: 0.5 } },
+        scheduler: { maxDelayMs: 10_000 }
+      },
+      mcp: {
+        remote: {
+          status: "degraded" as const,
+          tools: 1,
+          calls: 10,
+          failures: 9,
+          lastCheckedAt: new Date().toISOString()
+        }
+      }
+    };
+
+    await monitor.evaluate(sample);
+    await monitor.evaluate(sample);
+
+    assert.ok(warnCount >= 5);
+    assert.ok(warnCount <= 6);
+    assert.ok(alerts.length >= 1);
+  } finally {
+    fixture.cleanup();
+    await new Promise<void>((resolve) => webhook.close(() => resolve()));
   }
 });

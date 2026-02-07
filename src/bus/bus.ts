@@ -123,6 +123,10 @@ export class MessageBus {
     this.outboundSignal.push(Date.now());
   }
 
+  isRunning() {
+    return this.running;
+  }
+
   private async runInboundLoop() {
     while (this.running) {
       let processed = 0;

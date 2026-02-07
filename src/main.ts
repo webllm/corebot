@@ -3,6 +3,8 @@ import path from "node:path";
 import { loadConfig } from "./config/load.js";
 import { createLogger } from "./observability/logger.js";
 import { RuntimeTelemetry } from "./observability/telemetry.js";
+import { ObservabilityServer } from "./observability/server.js";
+import { SloMonitor } from "./observability/slo.js";
 import { SqliteStorage } from "./storage/sqlite.js";
 import { MessageBus } from "./bus/bus.js";
 import { ConversationRouter } from "./bus/router.js";
@@ -110,32 +112,61 @@ const main = async () => {
   const scheduler = new Scheduler(storage, bus, logger, config, telemetry);
   scheduler.start();
 
+  const getQueueSnapshot = () => ({
+    inbound: storage.countBusMessagesByStatus("inbound"),
+    outbound: storage.countBusMessagesByStatus("outbound")
+  });
+  const getTelemetrySnapshot = () => telemetry.snapshot();
+  const getMcpSnapshot = () => mcpManager.getHealthSnapshot();
+
+  let startupComplete = false;
+  let shuttingDown = false;
+  const readiness = () => !shuttingDown && bus.isRunning() && scheduler.isRunning();
+
+  const observabilityServer = new ObservabilityServer(config, logger, {
+    startedAtMs: Date.now(),
+    getQueue: getQueueSnapshot,
+    getTelemetry: getTelemetrySnapshot,
+    getMcp: getMcpSnapshot,
+    isReady: readiness,
+    isStartupComplete: () => startupComplete
+  });
+  await observabilityServer.start();
+  startupComplete = true;
+
+  const sloMonitor = new SloMonitor(config, logger);
   const observabilityTimer = config.observability.enabled
     ? setInterval(() => {
-        const queue = {
-          inbound: storage.countBusMessagesByStatus("inbound"),
-          outbound: storage.countBusMessagesByStatus("outbound")
-        };
+        const queue = getQueueSnapshot();
+        const telemetrySnapshot = getTelemetrySnapshot();
+        const mcpSnapshot = getMcpSnapshot();
         logger.info(
           {
             observability: {
               queue,
-              ...telemetry.snapshot(),
-              mcp: mcpManager.getHealthSnapshot()
+              ...telemetrySnapshot,
+              mcp: mcpSnapshot
             }
           },
           "runtime observability snapshot"
         );
+        void sloMonitor.evaluate({
+          queue,
+          telemetry: telemetrySnapshot,
+          mcp: mcpSnapshot
+        });
       }, config.observability.reportIntervalMs)
     : null;
 
   process.on("SIGINT", async () => {
     logger.info("Shutting down...");
+    shuttingDown = true;
     scheduler.stop();
     bus.stop();
     if (observabilityTimer) {
       clearInterval(observabilityTimer);
     }
+    await observabilityServer.stop();
     await isolatedRuntime.shutdown();
     await mcpManager.shutdown();
     storage.close();

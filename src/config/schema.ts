@@ -32,13 +32,38 @@ export const ConfigSchema = z.object({
       maxAttempts: z.number().int().min(1).max(20).default(5),
       retryBackoffMs: z.number().int().min(50).default(1_000),
       maxRetryBackoffMs: z.number().int().min(100).default(60_000),
-      processingTimeoutMs: z.number().int().min(1_000).default(120_000)
+      processingTimeoutMs: z.number().int().min(1_000).default(120_000),
+      maxPendingInbound: z.number().int().min(1).default(5_000),
+      maxPendingOutbound: z.number().int().min(1).default(5_000),
+      overloadPendingThreshold: z.number().int().min(1).default(2_000),
+      overloadBackoffMs: z.number().int().min(0).default(500),
+      perChatRateLimitWindowMs: z.number().int().min(1_000).default(60_000),
+      perChatRateLimitMax: z.number().int().min(1).default(120)
     })
     .default({}),
   observability: z
     .object({
       enabled: z.boolean().default(true),
-      reportIntervalMs: z.number().int().min(1_000).default(30_000)
+      reportIntervalMs: z.number().int().min(1_000).default(30_000),
+      http: z
+        .object({
+          enabled: z.boolean().default(false),
+          host: z.string().default("127.0.0.1"),
+          port: z.number().int().min(1).max(65535).default(3210)
+        })
+        .default({})
+    })
+    .default({}),
+  slo: z
+    .object({
+      enabled: z.boolean().default(true),
+      alertCooldownMs: z.number().int().min(1_000).default(60_000),
+      maxPendingQueue: z.number().int().min(1).default(2_000),
+      maxDeadLetterQueue: z.number().int().min(0).default(20),
+      maxToolFailureRate: z.number().min(0).max(1).default(0.2),
+      maxSchedulerDelayMs: z.number().int().min(0).default(60_000),
+      maxMcpFailureRate: z.number().min(0).max(1).default(0.3),
+      alertWebhookUrl: z.string().url().optional()
     })
     .default({}),
   isolation: z
@@ -58,10 +83,22 @@ export const ConfigSchema = z.object({
   allowedWebDomains: z.array(z.string()).default([]),
   allowedWebPorts: z.array(z.number().int().min(1).max(65535)).default([]),
   blockedWebPorts: z.array(z.number().int().min(1).max(65535)).default([]),
+  allowedMcpServers: z.array(z.string()).default([]),
+  allowedMcpTools: z.array(z.string()).default([]),
   adminBootstrapKey: z.string().optional(),
   adminBootstrapSingleUse: z.boolean().default(true),
   adminBootstrapMaxAttempts: z.number().int().min(1).max(20).default(5),
   adminBootstrapLockoutMinutes: z.number().int().min(1).max(24 * 60).default(15),
+  webhook: z
+    .object({
+      enabled: z.boolean().default(false),
+      host: z.string().default("0.0.0.0"),
+      port: z.number().int().min(1).max(65535).default(8788),
+      path: z.string().default("/webhook"),
+      authToken: z.string().optional(),
+      maxBodyBytes: z.number().int().min(1_024).max(10_000_000).default(1_000_000)
+    })
+    .default({}),
   cli: z
     .object({
       enabled: z.boolean().default(true)

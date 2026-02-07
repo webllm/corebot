@@ -8,13 +8,18 @@ import type { SkillIndexEntry } from "../src/skills/types.js";
 import type { IsolatedToolRuntime } from "../src/isolation/runtime.js";
 
 type TestConfigOverrides = Partial<
-  Omit<Config, "provider" | "scheduler" | "bus" | "observability" | "isolation" | "cli">
+  Omit<
+    Config,
+    "provider" | "scheduler" | "bus" | "observability" | "slo" | "isolation" | "webhook" | "cli"
+  >
 > & {
   provider?: Partial<Config["provider"]>;
   scheduler?: Partial<Config["scheduler"]>;
   bus?: Partial<Config["bus"]>;
   observability?: Partial<Config["observability"]>;
+  slo?: Partial<Config["slo"]>;
   isolation?: Partial<Config["isolation"]>;
+  webhook?: Partial<Config["webhook"]>;
   cli?: Partial<Config["cli"]>;
 };
 
@@ -48,11 +53,32 @@ export const createConfig = (
       maxAttempts: 3,
       retryBackoffMs: 20,
       maxRetryBackoffMs: 200,
-      processingTimeoutMs: 500
+      processingTimeoutMs: 500,
+      maxPendingInbound: 5_000,
+      maxPendingOutbound: 5_000,
+      overloadPendingThreshold: 2_000,
+      overloadBackoffMs: 500,
+      perChatRateLimitWindowMs: 60_000,
+      perChatRateLimitMax: 120
     },
     observability: {
       enabled: false,
-      reportIntervalMs: 5_000
+      reportIntervalMs: 5_000,
+      http: {
+        enabled: false,
+        host: "127.0.0.1",
+        port: 3210
+      }
+    },
+    slo: {
+      enabled: false,
+      alertCooldownMs: 60_000,
+      maxPendingQueue: 2_000,
+      maxDeadLetterQueue: 20,
+      maxToolFailureRate: 0.2,
+      maxSchedulerDelayMs: 60_000,
+      maxMcpFailureRate: 0.3,
+      alertWebhookUrl: undefined
     },
     isolation: {
       enabled: true,
@@ -69,10 +95,20 @@ export const createConfig = (
     allowedWebDomains: [],
     allowedWebPorts: [],
     blockedWebPorts: [],
+    allowedMcpServers: [],
+    allowedMcpTools: [],
     adminBootstrapKey: undefined,
     adminBootstrapSingleUse: true,
     adminBootstrapMaxAttempts: 5,
     adminBootstrapLockoutMinutes: 15,
+    webhook: {
+      enabled: false,
+      host: "127.0.0.1",
+      port: 8788,
+      path: "/webhook",
+      authToken: undefined,
+      maxBodyBytes: 1_000_000
+    },
     cli: { enabled: false }
   };
 
@@ -82,8 +118,17 @@ export const createConfig = (
     provider: { ...base.provider, ...(overrides.provider ?? {}) },
     scheduler: { ...base.scheduler, ...(overrides.scheduler ?? {}) },
     bus: { ...base.bus, ...(overrides.bus ?? {}) },
-    observability: { ...base.observability, ...(overrides.observability ?? {}) },
+    observability: {
+      ...base.observability,
+      ...(overrides.observability ?? {}),
+      http: {
+        ...base.observability.http,
+        ...(overrides.observability?.http ?? {})
+      }
+    },
+    slo: { ...base.slo, ...(overrides.slo ?? {}) },
     isolation: { ...base.isolation, ...(overrides.isolation ?? {}) },
+    webhook: { ...base.webhook, ...(overrides.webhook ?? {}) },
     cli: { ...base.cli, ...(overrides.cli ?? {}) }
   };
 };
