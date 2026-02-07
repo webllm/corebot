@@ -174,6 +174,103 @@ export class SqliteStorage {
     }
   }
 
+  startInboundExecution(params: {
+    channel: string;
+    chatId: string;
+    inboundId: string;
+    now: string;
+    staleBefore: string;
+  }):
+    | { state: "started" }
+    | { state: "running" }
+    | { state: "completed"; responseContent: string; toolMessagesJson: string } {
+    const inserted = this.db
+      .prepare(
+        "INSERT INTO inbound_executions(channel, chat_id, inbound_id, status, response_content, tool_messages_json, started_at, updated_at, completed_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(channel, chat_id, inbound_id) DO NOTHING"
+      )
+      .run(
+        params.channel,
+        params.chatId,
+        params.inboundId,
+        "running",
+        null,
+        null,
+        params.now,
+        params.now,
+        null
+      );
+    if (inserted.changes > 0) {
+      return { state: "started" };
+    }
+
+    const row = this.db
+      .prepare(
+        "SELECT status, response_content, tool_messages_json, updated_at FROM inbound_executions WHERE channel = ? AND chat_id = ? AND inbound_id = ?"
+      )
+      .get(params.channel, params.chatId, params.inboundId) as
+      | {
+          status: string;
+          response_content: string | null;
+          tool_messages_json: string | null;
+          updated_at: string;
+        }
+      | undefined;
+    if (!row) {
+      return { state: "started" };
+    }
+
+    if (row.status === "completed") {
+      return {
+        state: "completed",
+        responseContent: row.response_content ?? "",
+        toolMessagesJson: row.tool_messages_json ?? "[]"
+      };
+    }
+
+    if (row.status === "running" && row.updated_at <= params.staleBefore) {
+      const claimed = this.db
+        .prepare(
+          "UPDATE inbound_executions SET status = 'running', response_content = NULL, tool_messages_json = NULL, started_at = ?, updated_at = ?, completed_at = NULL WHERE channel = ? AND chat_id = ? AND inbound_id = ? AND status = 'running' AND updated_at <= ?"
+        )
+        .run(
+          params.now,
+          params.now,
+          params.channel,
+          params.chatId,
+          params.inboundId,
+          params.staleBefore
+        );
+      if (claimed.changes > 0) {
+        return { state: "started" };
+      }
+    }
+
+    return { state: "running" };
+  }
+
+  completeInboundExecution(params: {
+    channel: string;
+    chatId: string;
+    inboundId: string;
+    responseContent: string;
+    toolMessagesJson: string;
+    completedAt: string;
+  }) {
+    this.db
+      .prepare(
+        "UPDATE inbound_executions SET status = 'completed', response_content = ?, tool_messages_json = ?, completed_at = ?, updated_at = ? WHERE channel = ? AND chat_id = ? AND inbound_id = ?"
+      )
+      .run(
+        params.responseContent,
+        params.toolMessagesJson,
+        params.completedAt,
+        params.completedAt,
+        params.channel,
+        params.chatId,
+        params.inboundId
+      );
+  }
+
   listDueBusMessages(
     direction: BusMessageDirection,
     now: string,
@@ -532,6 +629,7 @@ export class SqliteStorage {
   }
 
   insertMessage(params: {
+    id?: string;
     chatFk: string;
     senderId: string;
     role: string;
@@ -539,22 +637,26 @@ export class SqliteStorage {
     stored: boolean;
     createdAt?: string;
   }) {
-    this.db
+    const messageId = params.id ?? newId();
+    const createdAt = params.createdAt ?? nowIso();
+    const inserted = this.db
       .prepare(
-        "INSERT INTO messages(id, chat_fk, sender_id, role, content, created_at, stored) VALUES(?,?,?,?,?,?,?)"
+        "INSERT OR IGNORE INTO messages(id, chat_fk, sender_id, role, content, created_at, stored) VALUES(?,?,?,?,?,?,?)"
       )
       .run(
-        newId(),
+        messageId,
         params.chatFk,
         params.senderId,
         params.role,
         params.stored ? params.content : "",
-        params.createdAt ?? nowIso(),
+        createdAt,
         params.stored ? 1 : 0
       );
-    this.db
-      .prepare("UPDATE chats SET last_message_at = ? WHERE id = ?")
-      .run(params.createdAt ?? nowIso(), params.chatFk);
+    if (inserted.changes > 0) {
+      this.db
+        .prepare("UPDATE chats SET last_message_at = ? WHERE id = ?")
+        .run(createdAt, params.chatFk);
+    }
   }
 
   listRecentMessages(chatFk: string, limit: number) {

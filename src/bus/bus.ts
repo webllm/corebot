@@ -26,11 +26,12 @@ export class MessageBus {
   }
 
   publishInbound(message: InboundMessage) {
+    const idempotencyKey = `${message.channel}:${message.chatId}:${message.id}`;
     const queued = this.storage.enqueueBusMessage({
       direction: "inbound",
       payload: message,
       maxAttempts: this.config.bus.maxAttempts,
-      idempotencyKey: message.id
+      idempotencyKey
     });
     if (queued.inserted || queued.status === "pending") {
       this.inboundSignal.push(Date.now());
@@ -38,11 +39,12 @@ export class MessageBus {
   }
 
   publishOutbound(message: OutboundMessage) {
+    const idempotencyKey = `${message.channel}:${message.chatId}:${message.id}`;
     const queued = this.storage.enqueueBusMessage({
       direction: "outbound",
       payload: message,
       maxAttempts: this.config.bus.maxAttempts,
-      idempotencyKey: message.id
+      idempotencyKey
     });
     if (queued.inserted || queued.status === "pending") {
       this.outboundSignal.push(Date.now());

@@ -102,5 +102,24 @@ export const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_message_dedupe_queue
         ON message_dedupe(queue_id);
     `
+  },
+  {
+    id: 4,
+    sql: `
+      CREATE TABLE IF NOT EXISTS inbound_executions (
+        channel TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        inbound_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        response_content TEXT,
+        tool_messages_json TEXT,
+        started_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT,
+        PRIMARY KEY(channel, chat_id, inbound_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_inbound_executions_status
+        ON inbound_executions(status, updated_at);
+    `
   }
 ];

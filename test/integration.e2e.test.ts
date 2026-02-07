@@ -317,3 +317,71 @@ test("E2E: isolated fs.write executes through runtime tool loop", async () => {
     await harness.cleanup();
   }
 });
+
+test("E2E: inbound execution ledger prevents duplicate runtime on re-queued inbound", async () => {
+  let providerCalls = 0;
+  const provider = new MockProvider(async (req) => {
+    providerCalls += 1;
+    const last = req.messages[req.messages.length - 1];
+    const content = "content" in last ? last.content : "";
+    return { content: `echo:${content}` };
+  });
+  const harness = createHarness(provider, {
+    bus: {
+      pollMs: 10,
+      batchSize: 20,
+      maxAttempts: 3,
+      retryBackoffMs: 10,
+      maxRetryBackoffMs: 100,
+      processingTimeoutMs: 200
+    }
+  });
+
+  try {
+    const seededChat = harness.storage.upsertChat({ channel: "cli", chatId: "local" });
+    harness.storage.setChatRegistered(seededChat.id, true);
+
+    const duplicatedInbound = {
+      id: "in-dup-exec-1",
+      channel: "cli",
+      chatId: "local",
+      senderId: "user",
+      content: "hello duplicated queue",
+      createdAt: new Date().toISOString()
+    };
+
+    harness.storage.enqueueBusMessage({
+      direction: "inbound",
+      payload: duplicatedInbound,
+      maxAttempts: harness.config.bus.maxAttempts
+    });
+    harness.storage.enqueueBusMessage({
+      direction: "inbound",
+      payload: duplicatedInbound,
+      maxAttempts: harness.config.bus.maxAttempts
+    });
+
+    await waitUntil(() => harness.storage.countBusMessagesByStatus("inbound").processed >= 2);
+    await waitUntil(() => harness.outbound.length >= 1);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    assert.equal(providerCalls, 1);
+    assert.equal(harness.outbound.length, 1);
+    assert.equal(harness.outbound[0]?.content, "echo:hello duplicated queue");
+
+    const chat = harness.storage.getChat("cli", "local");
+    assert.ok(chat);
+    const history = harness.storage.listRecentMessages(chat!.id, 20);
+    assert.equal(
+      history.filter((item) => item.role === "user" && item.content === "hello duplicated queue").length,
+      1
+    );
+    assert.equal(
+      history.filter((item) => item.role === "assistant" && item.content === "echo:hello duplicated queue")
+        .length,
+      1
+    );
+  } finally {
+    await harness.cleanup();
+  }
+});

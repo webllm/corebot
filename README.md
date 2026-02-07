@@ -14,6 +14,7 @@ Single-process by default, tool- and skill-driven, MCP-ready, and safe-by-defaul
 - **CLI channel** for local usage (other channels stubbed)
 - **Isolated tool runtime** for high-risk tools (`shell.exec`, `web.fetch`, `fs.write`)
 - **Durable queue with idempotent publish** (retry/dead-letter/replay + dedupe by message id)
+- **Inbound execution ledger** to avoid duplicate runtime/tool execution on re-queued messages
 
 ## Quick Start
 

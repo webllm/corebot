@@ -7,7 +7,6 @@ import type { Config } from "../config/schema.js";
 import type { Logger } from "pino";
 import type { SkillIndexEntry } from "../skills/types.js";
 import { compactConversation } from "../agent/compact.js";
-import { newId } from "../util/ids.js";
 import { nowIso } from "../util/time.js";
 import type { McpManager } from "../mcp/manager.js";
 import type { IsolatedToolRuntime } from "../isolation/runtime.js";
@@ -53,6 +52,28 @@ export class ConversationRouter {
       chatId: message.chatId
     });
 
+    const executionNow = nowIso();
+    const execution = this.storage.startInboundExecution({
+      channel: message.channel,
+      chatId: message.chatId,
+      inboundId: message.id,
+      now: executionNow,
+      staleBefore: new Date(
+        Date.now() - this.config.bus.processingTimeoutMs
+      ).toISOString()
+    });
+    if (execution.state === "running") {
+      this.logger.warn(
+        {
+          channel: message.channel,
+          chatId: message.chatId,
+          inboundId: message.id
+        },
+        "inbound execution already in progress"
+      );
+      return;
+    }
+
     const { messages } = this.contextBuilder.build({
       chat,
       inbound: message,
@@ -75,21 +96,39 @@ export class ConversationRouter {
     let responseContent = "";
     let toolMessages: ToolMessage[] = [];
     let errorMessage: string | null = null;
-    try {
-      const result = await this.runtime.run({
-        messages,
-        toolContext
+    if (execution.state === "completed") {
+      responseContent = execution.responseContent;
+      try {
+        toolMessages = JSON.parse(execution.toolMessagesJson) as ToolMessage[];
+      } catch {
+        toolMessages = [];
+      }
+    } else {
+      try {
+        const result = await this.runtime.run({
+          messages,
+          toolContext
+        });
+        responseContent = result.content;
+        toolMessages = result.toolMessages;
+      } catch (error) {
+        errorMessage = error instanceof Error ? error.message : String(error);
+        responseContent = `Error: ${errorMessage}`;
+        this.logger.error({ error: errorMessage }, "runtime error");
+      }
+      this.storage.completeInboundExecution({
+        channel: message.channel,
+        chatId: message.chatId,
+        inboundId: message.id,
+        responseContent,
+        toolMessagesJson: JSON.stringify(toolMessages),
+        completedAt: nowIso()
       });
-      responseContent = result.content;
-      toolMessages = result.toolMessages;
-    } catch (error) {
-      errorMessage = error instanceof Error ? error.message : String(error);
-      responseContent = `Error: ${errorMessage}`;
-      this.logger.error({ error: errorMessage }, "runtime error");
     }
 
     const stored = this.config.storeFullMessages || chat.registered;
     this.storage.insertMessage({
+      id: `user:${message.channel}:${message.chatId}:${message.id}`,
       chatFk: chat.id,
       senderId: message.senderId,
       role: "user",
@@ -100,6 +139,7 @@ export class ConversationRouter {
 
     for (const toolMessage of toolMessages) {
       this.storage.insertMessage({
+        id: `tool:${message.channel}:${message.chatId}:${message.id}:${toolMessage.tool_call_id}`,
         chatFk: chat.id,
         senderId: toolMessage.tool_call_id,
         role: "tool",
@@ -110,6 +150,7 @@ export class ConversationRouter {
     }
 
     this.storage.insertMessage({
+      id: `assistant:${message.channel}:${message.chatId}:${message.id}`,
       chatFk: chat.id,
       senderId: "assistant",
       role: "assistant",
@@ -144,7 +185,7 @@ export class ConversationRouter {
     }
 
     const outbound: OutboundMessage = {
-      id: newId(),
+      id: `outbound:${message.channel}:${message.chatId}:${message.id}`,
       channel: message.channel,
       chatId: message.chatId,
       content: responseContent,

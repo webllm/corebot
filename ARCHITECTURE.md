@@ -76,6 +76,7 @@ flowchart TD
 - **Per-conversation serialization**: avoid concurrent message context races.
 - Loads chat record from storage, builds context, runs agent, stores messages and summaries.
 - Writes scheduled task run logs when applicable.
+- Uses inbound execution ledger + deterministic message/outbound IDs to make re-processing idempotent.
 
 ---
 
