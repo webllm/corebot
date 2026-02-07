@@ -57,6 +57,16 @@ export type TaskRecord = {
   createdAt: string;
 };
 
+export type TaskRunRecord = {
+  id: number;
+  taskFk: string;
+  runAt: string;
+  durationMs: number;
+  status: "success" | "error";
+  resultPreview: string | null;
+  error: string | null;
+};
+
 export type BusQueueRecord = {
   id: string;
   direction: BusMessageDirection;

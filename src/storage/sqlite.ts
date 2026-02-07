@@ -6,6 +6,7 @@ import type {
   BusQueueRecord,
   ChatRecord,
   ConversationState,
+  TaskRunRecord,
   TaskRecord
 } from "../types.js";
 import { nowIso } from "../util/time.js";
@@ -346,15 +347,35 @@ export class SqliteStorage {
   getChat(channel: string, chatId: string): ChatRecord | null {
     const row = this.db
       .prepare("SELECT * FROM chats WHERE channel = ? AND chat_id = ?")
-      .get(channel, chatId) as ChatRecord | undefined;
-    return row ?? null;
+      .get(channel, chatId) as
+      | {
+          id: string;
+          channel: string;
+          chat_id: string;
+          display_name: string | null;
+          last_message_at: string | null;
+          role: "admin" | "normal";
+          registered: number;
+        }
+      | undefined;
+    return row ? this.mapChatRow(row) : null;
   }
 
   getChatById(id: string): ChatRecord | null {
     const row = this.db
       .prepare("SELECT * FROM chats WHERE id = ?")
-      .get(id) as ChatRecord | undefined;
-    return row ?? null;
+      .get(id) as
+      | {
+          id: string;
+          channel: string;
+          chat_id: string;
+          display_name: string | null;
+          last_message_at: string | null;
+          role: "admin" | "normal";
+          registered: number;
+        }
+      | undefined;
+    return row ? this.mapChatRow(row) : null;
   }
 
   setChatRole(chatFk: string, role: "admin" | "normal") {
@@ -653,7 +674,52 @@ export class SqliteStorage {
       );
   }
 
+  listTaskRuns(taskFk: string, limit = 50): TaskRunRecord[] {
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM task_runs WHERE task_fk = ? ORDER BY run_at DESC LIMIT ?"
+      )
+      .all(taskFk, limit) as Array<{
+      id: number;
+      task_fk: string;
+      run_at: string;
+      duration_ms: number;
+      status: "success" | "error";
+      result_preview: string | null;
+      error: string | null;
+    }>;
+    return rows.map((row) => ({
+      id: row.id,
+      taskFk: row.task_fk,
+      runAt: row.run_at,
+      durationMs: row.duration_ms,
+      status: row.status,
+      resultPreview: row.result_preview,
+      error: row.error
+    }));
+  }
+
   close() {
     this.db.close();
+  }
+
+  private mapChatRow(row: {
+    id: string;
+    channel: string;
+    chat_id: string;
+    display_name: string | null;
+    last_message_at: string | null;
+    role: "admin" | "normal";
+    registered: number;
+  }): ChatRecord {
+    return {
+      id: row.id,
+      channel: row.channel,
+      chatId: row.chat_id,
+      displayName: row.display_name,
+      role: row.role,
+      registered: row.registered === 1,
+      lastMessageAt: row.last_message_at
+    };
   }
 }
