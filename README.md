@@ -1,5 +1,9 @@
 # Corebot
 
+![Node CI](https://github.com/webllm/corebot/workflows/Node%20CI/badge.svg)
+[![npm](https://img.shields.io/npm/v/@corebot/core.svg)](https://www.npmjs.com/package/@corebot/core)
+![license](https://img.shields.io/npm/l/@corebot/core)
+
 Lightweight but capable TypeScript bot architecture.
 Single-process by default, tool- and skill-driven, MCP-ready, and safe-by-default.
 
@@ -409,3 +413,7 @@ Corebot is inspired by NanoClaw + NanoBot patterns.
 ---
 
 For the full architecture details, see `ARCHITECTURE.md`.
+
+## License
+
+[MIT](./LICENSE)
