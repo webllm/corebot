@@ -1,27 +1,32 @@
 name: Node CI
 
-on: [push]
+on:
+  push:
+  pull_request:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     strategy:
       matrix:
-        node-version: [22.x]
+        node-version: [20.x, 22.x]
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ matrix.node-version }}
-    - name: yarn install, build, test, and pack smoke-check
-      run: |
-        yarn install
-        yarn build
-        yarn test
-        yarn test:pack
-      env:
-        CI: true
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.1
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Verify
+        run: pnpm run verify
+        env:
+          CI: true
+      - name: Build
+        run: pnpm run build

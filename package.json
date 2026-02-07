@@ -1,9 +1,17 @@
 {
   "name": "corebot",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "type": "module",
   "packageManager": "pnpm@10.28.1",
+  "main": "dist/main.js",
+  "files": [
+    "dist",
+    "README.md",
+    "ARCHITECTURE.md",
+    "RUNBOOK.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=20"
   },
