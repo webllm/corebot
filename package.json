@@ -1,7 +1,7 @@
 {
   "name": "@corebot/core",
   "version": "0.1.0",
-  "private": false,
+  "description": "Lightweight but capable TypeScript bot architecture.",
   "type": "module",
   "packageManager": "pnpm@10.28.1",
   "main": "dist/index.js",
@@ -67,5 +67,12 @@
     "commitizen": {
       "path": "cz-conventional-changelog"
     }
-  }
+  },
+  "keywords": [
+    "bot",
+    "agent",
+    "chatbot"
+  ],
+  "author": "unadlib",
+  "license": "MIT"
 }
