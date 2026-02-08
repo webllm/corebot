@@ -47,22 +47,22 @@
     "commit": "pnpm git-cz"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
-    "better-sqlite3": "^11.0.0",
-    "cron-parser": "^4.9.0",
-    "dotenv": "^16.4.5",
-    "nanoid": "^5.0.7",
-    "pino": "^9.2.0",
-    "yaml": "^2.4.5",
-    "zod": "^3.23.8",
-    "zod-to-json-schema": "^3.23.5"
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "better-sqlite3": "^12.6.2",
+    "cron-parser": "^5.5.0",
+    "dotenv": "^17.2.4",
+    "nanoid": "^5.1.6",
+    "pino": "^10.3.0",
+    "yaml": "^2.8.2",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.25.1"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.12",
-    "@types/node": "^22.10.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.2.2",
     "commitizen": "^4.3.1",
-    "tsx": "^4.19.2",
-    "typescript": "^5.6.3"
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
   },
   "config": {
     "commitizen": {

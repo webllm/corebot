@@ -1,4 +1,4 @@
-import cronParser from "cron-parser";
+import { CronExpressionParser } from "cron-parser";
 import type { TaskRecord } from "../types.js";
 
 export const computeNextRun = (
@@ -26,7 +26,9 @@ export const computeNextRun = (
     return target.toISOString();
   }
   try {
-    const interval = cronParser.parseExpression(task.scheduleValue, { currentDate: fromDate });
+    const interval = CronExpressionParser.parse(task.scheduleValue, {
+      currentDate: fromDate
+    });
     const next = interval.next();
     return next.toDate().toISOString();
   } catch {
