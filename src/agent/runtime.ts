@@ -88,10 +88,10 @@ export class AgentRuntime {
   }): Promise<{ content: string; toolMessages: ToolMessage[] }> {
     const messages: ChatMessage[] = [...params.messages];
     const toolMessages: ToolMessage[] = [];
-    const toolDefs = this.tools.listDefinitions();
-    const toolsForRequest = toolDefs.length > 0 ? toolDefs : undefined;
 
     for (let i = 0; i < this.config.maxToolIterations; i += 1) {
+      const toolDefs = this.tools.listDefinitions();
+      const toolsForRequest = toolDefs.length > 0 ? toolDefs : undefined;
       const response = await this.provider.chat({
         model: this.config.provider.model,
         messages,

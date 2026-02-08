@@ -65,6 +65,75 @@ test("McpManager enforces server and tool allowlists", async () => {
   }
 });
 
+test("McpManager reloadFromConfig replaces previously loaded tools", async () => {
+  const manager = new McpManager({
+    factory: {
+      async createClient(server) {
+        return {
+          client: {
+            async listTools() {
+              return [
+                { name: "echo", description: `${server.name}-echo`, inputSchema: { type: "object" } }
+              ];
+            },
+            async callTool() {
+              return { server: server.name };
+            },
+            async connect() {
+              return;
+            },
+            async close() {
+              return;
+            }
+          }
+        };
+      }
+    },
+    logger: {
+      info: () => undefined,
+      warn: () => undefined
+    } as any
+  });
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "corebot-mcp-reload-"));
+  try {
+    const configPath = path.join(root, "mcp.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        servers: {
+          alpha: { command: "noop" }
+        }
+      }),
+      "utf-8"
+    );
+
+    let defs = await manager.reloadFromConfig(configPath);
+    assert.equal(defs.length, 1);
+    assert.equal(defs[0]?.name, "mcp__alpha__echo");
+    assert.deepEqual(await manager.callTool("mcp__alpha__echo", {}), { server: "alpha" });
+
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        servers: {
+          beta: { command: "noop" }
+        }
+      }),
+      "utf-8"
+    );
+
+    defs = await manager.reloadFromConfig(configPath);
+    assert.equal(defs.length, 1);
+    assert.equal(defs[0]?.name, "mcp__beta__echo");
+    await assert.rejects(manager.callTool("mcp__alpha__echo", {}), /Unknown MCP tool/);
+    assert.deepEqual(await manager.callTool("mcp__beta__echo", {}), { server: "beta" });
+  } finally {
+    await manager.shutdown();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Policy engine enforces MCP allowlists for admin calls", async () => {
   const fixture = createStorageFixture({
     allowedMcpServers: ["good"],

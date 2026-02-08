@@ -174,6 +174,13 @@ export class McpManager {
     return toolDefs;
   }
 
+  async reloadFromConfig(configPath: string): Promise<ToolDefinition[]> {
+    await this.closeClients();
+    this.tools.clear();
+    this.serverHealth.clear();
+    return this.loadFromConfig(configPath);
+  }
+
   async callTool(fullName: string, args: unknown): Promise<unknown> {
     const info = this.tools.get(fullName);
     if (!info) {
@@ -206,13 +213,10 @@ export class McpManager {
   }
 
   async shutdown() {
-    for (const client of this.clients.values()) {
-      if (client.close) {
-        await client.close();
-      }
-    }
+    await this.closeClients();
     this.clients.clear();
     this.tools.clear();
+    this.serverHealth.clear();
   }
 
   getHealthSnapshot(): Record<string, McpServerHealth> {
@@ -253,5 +257,14 @@ export class McpManager {
       lastCheckedAt: new Date().toISOString(),
       ...(patch.lastError ? { lastError: patch.lastError } : {})
     });
+  }
+
+  private async closeClients() {
+    for (const client of this.clients.values()) {
+      if (client.close) {
+        await client.close();
+      }
+    }
+    this.clients.clear();
   }
 }

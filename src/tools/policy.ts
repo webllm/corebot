@@ -76,6 +76,10 @@ export class DefaultToolPolicyEngine implements ToolPolicyEngine {
       return deny("Only admin can use shell.exec.");
     }
 
+    if (toolName === "mcp.reload" && role !== "admin") {
+      return deny("Only admin can reload MCP tools.");
+    }
+
     if (toolName === "memory.write" && role !== "admin") {
       if (record.scope === "global") {
         return deny("Only admin can write global memory.");

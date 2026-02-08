@@ -40,6 +40,12 @@ export type ToolContext = {
   chat: { channel: string; chatId: string; role: "admin" | "normal"; id: string };
   storage: SqliteStorage;
   mcp: McpManager;
+  mcpReloader?: (params?: { force?: boolean; reason?: string }) => Promise<{
+    reloaded: boolean;
+    reason: string;
+    toolCount: number;
+    configSignature: string;
+  }>;
   logger: Logger;
   bus: MessageBus;
   config: Config;
@@ -66,7 +72,7 @@ export class ToolRegistry {
   register<TArgs extends z.ZodType>(tool: ToolSpec<TArgs>) {
     this.tools.set(tool.name, tool as unknown as ToolSpec<any>);
     const jsonSchema = z.toJSONSchema(tool.schema) as Record<string, unknown>;
-    this.toolDefs.push({
+    this.upsertDefinition({
       name: tool.name,
       description: tool.description,
       parameters: jsonSchema
@@ -82,11 +88,20 @@ export class ToolRegistry {
       run: async (args, ctx) => handler(args, ctx)
     };
     this.tools.set(def.name, spec);
-    this.toolDefs.push(def);
+    this.upsertDefinition(def);
+  }
+
+  removeByPrefix(prefix: string) {
+    for (const name of [...this.tools.keys()]) {
+      if (name.startsWith(prefix)) {
+        this.tools.delete(name);
+      }
+    }
+    this.toolDefs = this.toolDefs.filter((def) => !def.name.startsWith(prefix));
   }
 
   listDefinitions(): ToolDefinition[] {
-    return this.toolDefs;
+    return [...this.toolDefs];
   }
 
   async execute(name: string, args: unknown, ctx: ToolContext): Promise<string> {
@@ -174,5 +189,10 @@ export class ToolRegistry {
       });
       throw error;
     }
+  }
+
+  private upsertDefinition(def: ToolDefinition) {
+    this.toolDefs = this.toolDefs.filter((entry) => entry.name !== def.name);
+    this.toolDefs.push(def);
   }
 }

@@ -8,6 +8,7 @@ import { shellTools } from "../src/tools/builtins/shell.js";
 import { messageTools } from "../src/tools/builtins/message.js";
 import { taskTools } from "../src/tools/builtins/tasks.js";
 import { webTools } from "../src/tools/builtins/web.js";
+import { builtInTools } from "../src/tools/builtins/index.js";
 import { createStorageFixture, createToolContext } from "./test-utils.js";
 
 test("policy engine denies shell.exec for normal role", async () => {
@@ -270,6 +271,89 @@ test("policy engine blocks MCP tools for normal role", async () => {
       registry.execute("mcp__demo__echo", {}, context),
       /Policy denied mcp__demo__echo/
     );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("policy engine blocks mcp.reload for normal role", async () => {
+  const fixture = createStorageFixture();
+  try {
+    const chat = fixture.storage.upsertChat({ channel: "cli", chatId: "local" });
+    const registry = new ToolRegistry(new DefaultToolPolicyEngine());
+    for (const tool of builtInTools({
+      mcpReloader: async () => ({
+        reloaded: true,
+        reason: "test",
+        toolCount: 0,
+        configSignature: "missing"
+      })
+    })) {
+      registry.register(tool);
+    }
+
+    const { context } = createToolContext({
+      config: fixture.config,
+      storage: fixture.storage,
+      workspaceDir: fixture.workspaceDir,
+      chatFk: chat.id,
+      chatRole: "normal"
+    });
+
+    await assert.rejects(
+      registry.execute("mcp.reload", {}, context),
+      /Policy denied mcp\.reload/
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("mcp.reload executes reloader for admin", async () => {
+  const fixture = createStorageFixture();
+  try {
+    const chat = fixture.storage.upsertChat({ channel: "cli", chatId: "local" });
+    fixture.storage.setChatRole(chat.id, "admin");
+    let calls = 0;
+    const registry = new ToolRegistry(new DefaultToolPolicyEngine());
+    for (const tool of builtInTools({
+      mcpReloader: async (params) => {
+        calls += 1;
+        return {
+          reloaded: true,
+          reason: params?.reason ?? "manual",
+          toolCount: 2,
+          configSignature: "present:1:1"
+        };
+      }
+    })) {
+      registry.register(tool);
+    }
+
+    const { context } = createToolContext({
+      config: fixture.config,
+      storage: fixture.storage,
+      workspaceDir: fixture.workspaceDir,
+      chatFk: chat.id,
+      chatRole: "admin"
+    });
+
+    const result = await registry.execute(
+      "mcp.reload",
+      { reason: "admin-test" },
+      context
+    );
+    const parsed = JSON.parse(result) as {
+      reloaded: boolean;
+      reason: string;
+      toolCount: number;
+      configSignature: string;
+    };
+    assert.equal(calls, 1);
+    assert.equal(parsed.reloaded, true);
+    assert.equal(parsed.reason, "admin-test");
+    assert.equal(parsed.toolCount, 2);
+    assert.equal(parsed.configSignature, "present:1:1");
   } finally {
     fixture.cleanup();
   }

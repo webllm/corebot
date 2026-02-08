@@ -336,6 +336,7 @@ jobs:
 - `message.send`, `chat.register`, `chat.set_role`
 - `tasks.schedule`, `tasks.list`, `tasks.update`
 - `skills.list`, `skills.read`, `skills.enable`, `skills.disable`, `skills.enabled`
+- `mcp.reload` (admin only; force refresh MCP config and tool bindings)
 - `bus.dead_letter.list`, `bus.dead_letter.replay` (admin only)
 
 ## Skills
@@ -357,6 +358,8 @@ tools:
 ...
 ```
 
+New skill directories/files are discovered dynamically during message handling, so adding a skill does not require a process restart.
+
 ## MCP Integration
 
 Create `.mcp.json` in repo root:
@@ -373,6 +376,9 @@ Create `.mcp.json` in repo root:
 ```
 
 MCP tools are injected as: `mcp__<server>__<tool>`.
+
+`.mcp.json` is checked and auto-synced during message handling; changes are applied without restart.  
+You can also force refresh manually with `mcp.reload`.
 
 ## Scheduler
 

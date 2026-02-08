@@ -188,7 +188,6 @@ export const createCorebotApp = async (
   storage.init();
 
   const skillLoader = new SkillLoader(config.skillsDir);
-  const skills = skillLoader.listSkills();
 
   const mcpManager = new McpManager({
     logger,
@@ -197,19 +196,103 @@ export const createCorebotApp = async (
   });
   const isolatedRuntime = new IsolatedToolRuntime(config, logger);
   const toolRegistry = new ToolRegistry(new DefaultToolPolicyEngine(), telemetry);
-  for (const tool of builtInTools()) {
+  const mcpConfigPath = path.resolve(config.mcpConfigPath);
+  let mcpConfigSignature: string | null = null;
+  let mcpSyncInFlight: Promise<{
+    reloaded: boolean;
+    reason: string;
+    toolCount: number;
+    configSignature: string;
+  }> | null = null;
+
+  const readMcpConfigSignature = () => {
+    try {
+      const stat = fs.statSync(mcpConfigPath);
+      return `present:${stat.mtimeMs}:${stat.size}`;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return "missing";
+      }
+      throw error;
+    }
+  };
+
+  const countRegisteredMcpTools = () =>
+    toolRegistry.listDefinitions().filter((def) => def.name.startsWith("mcp__")).length;
+
+  const syncMcpTools = async (params: {
+    force?: boolean;
+    reason: string;
+  }): Promise<{
+    reloaded: boolean;
+    reason: string;
+    toolCount: number;
+    configSignature: string;
+  }> => {
+    if (mcpSyncInFlight) {
+      return mcpSyncInFlight;
+    }
+
+    const force = Boolean(params.force);
+    const currentSignature = readMcpConfigSignature();
+    if (!force && mcpConfigSignature !== null && currentSignature === mcpConfigSignature) {
+      return {
+        reloaded: false,
+        reason: params.reason,
+        toolCount: countRegisteredMcpTools(),
+        configSignature: currentSignature
+      };
+    }
+
+    mcpSyncInFlight = (async () => {
+      const defs = await mcpManager.reloadFromConfig(mcpConfigPath);
+      toolRegistry.removeByPrefix("mcp__");
+      for (const def of defs) {
+        toolRegistry.registerRaw(def, async (args: unknown, ctx: ToolContext) => {
+          const result = await ctx.mcp.callTool(def.name, args);
+          return formatMcpResult(result);
+        });
+      }
+      const updatedSignature = readMcpConfigSignature();
+      mcpConfigSignature = updatedSignature;
+      logger.info(
+        {
+          reason: params.reason,
+          toolCount: defs.length,
+          configSignature: updatedSignature
+        },
+        "MCP tools synchronized"
+      );
+      return {
+        reloaded: true,
+        reason: params.reason,
+        toolCount: defs.length,
+        configSignature: updatedSignature
+      };
+    })()
+      .catch((error) => {
+        logger.warn({ error, reason: params.reason }, "failed to sync MCP tools");
+        throw error;
+      })
+      .finally(() => {
+        mcpSyncInFlight = null;
+      });
+
+    return mcpSyncInFlight;
+  };
+
+  const mcpReloader: ToolContext["mcpReloader"] = (params = {}) =>
+    syncMcpTools({
+      force: params.force,
+      reason: params.reason ?? "manual:unspecified"
+    });
+
+  for (const tool of builtInTools({ mcpReloader })) {
     toolRegistry.register(tool);
   }
 
-  const mcpConfigPath = path.resolve(config.mcpConfigPath);
   try {
-    const mcpToolDefs = await mcpManager.loadFromConfig(mcpConfigPath);
-    for (const def of mcpToolDefs) {
-      toolRegistry.registerRaw(def, async (args: unknown, ctx: ToolContext) => {
-        const result = await ctx.mcp.callTool(def.name, args);
-        return formatMcpResult(result);
-      });
-    }
+    await syncMcpTools({ force: true, reason: "startup" });
   } catch (error) {
     logger.warn({ error }, "failed to load MCP tools");
   }
@@ -226,8 +309,9 @@ export const createCorebotApp = async (
     bus,
     logger,
     config,
-    skills,
-    isolatedRuntime
+    () => skillLoader.listSkills(),
+    isolatedRuntime,
+    mcpReloader
   );
   bus.onInbound(router.handleInbound);
   const scheduler = new Scheduler(storage, bus, logger, config, telemetry);

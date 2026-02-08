@@ -15,6 +15,8 @@ import { Scheduler } from "../src/scheduler/scheduler.js";
 import { RuntimeTelemetry } from "../src/observability/telemetry.js";
 import type { Config } from "../src/config/schema.js";
 import { IsolatedToolRuntime } from "../src/isolation/runtime.js";
+import { SkillLoader } from "../src/skills/loader.js";
+import type { SkillIndexEntry } from "../src/skills/types.js";
 import { createStorageFixture } from "./test-utils.js";
 
 type HarnessOverrides = Partial<
@@ -74,7 +76,13 @@ const createNoopLogger = () =>
     child: () => createNoopLogger()
   }) as any;
 
-const createHarness = (provider: LlmProvider, overrides: HarnessOverrides = {}) => {
+const createHarness = (
+  provider: LlmProvider,
+  overrides: HarnessOverrides = {},
+  options: {
+    skills?: SkillIndexEntry[] | (() => SkillIndexEntry[]);
+  } = {}
+) => {
   const schedulerDefaults = { tickMs: 20 };
   const busDefaults = {
     pollMs: 10,
@@ -120,7 +128,7 @@ const createHarness = (provider: LlmProvider, overrides: HarnessOverrides = {}) 
     bus,
     logger,
     fixture.config,
-    [],
+    options.skills ?? [],
     isolatedRuntime
   );
   bus.onInbound(router.handleInbound);
@@ -314,6 +322,84 @@ test("E2E: isolated fs.write executes through runtime tool loop", async () => {
 
     const targetPath = path.join(harness.workspaceDir, "isolated/e2e.txt");
     assert.equal(fs.readFileSync(targetPath, "utf-8"), "isolation works");
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test("E2E: router picks up added and removed skills without restart", async () => {
+  const provider = new MockProvider(async (req) => {
+    const systemMessage = req.messages.find((message) => message.role === "system");
+    if (!systemMessage || systemMessage.role !== "system") {
+      return { content: "missing system prompt" };
+    }
+    return { content: systemMessage.content };
+  });
+
+  let skillsDir = "";
+  const harness = createHarness(provider, {}, {
+    skills: () => {
+      if (!skillsDir) {
+        return [];
+      }
+      const loader = new SkillLoader(skillsDir);
+      return loader.listSkills();
+    }
+  });
+  skillsDir = harness.config.skillsDir;
+
+  try {
+    const chat = harness.storage.upsertChat({ channel: "cli", chatId: "local" });
+    harness.storage.setChatRegistered(chat.id, true);
+
+    harness.bus.publishInbound({
+      id: "in-skill-dynamic-1",
+      channel: "cli",
+      chatId: "local",
+      senderId: "user",
+      content: "show skills",
+      createdAt: new Date().toISOString()
+    });
+    await waitUntil(() => harness.outbound.length >= 1);
+    assert.match(harness.outbound[0]?.content ?? "", /\(no skills available\)/);
+
+    const skillDir = path.join(harness.config.skillsDir, "dynamic-skill");
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, "SKILL.md"),
+      [
+        "---",
+        "name: dynamic-skill",
+        "description: loaded without restart",
+        "---",
+        "# Dynamic Skill",
+        "runtime-loaded"
+      ].join("\n"),
+      "utf-8"
+    );
+
+    harness.bus.publishInbound({
+      id: "in-skill-dynamic-2",
+      channel: "cli",
+      chatId: "local",
+      senderId: "user",
+      content: "show skills again",
+      createdAt: new Date().toISOString()
+    });
+    await waitUntil(() => harness.outbound.length >= 2);
+    assert.match(harness.outbound[1]?.content ?? "", /dynamic-skill/);
+
+    fs.rmSync(skillDir, { recursive: true, force: true });
+    harness.bus.publishInbound({
+      id: "in-skill-dynamic-3",
+      channel: "cli",
+      chatId: "local",
+      senderId: "user",
+      content: "show skills after remove",
+      createdAt: new Date().toISOString()
+    });
+    await waitUntil(() => harness.outbound.length >= 3);
+    assert.doesNotMatch(harness.outbound[2]?.content ?? "", /dynamic-skill/);
   } finally {
     await harness.cleanup();
   }

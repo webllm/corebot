@@ -140,7 +140,8 @@ Unifies three tool sources:
 - **memory.read / memory.write**
 - **message.send / chat.register / chat.set_role**
 - **tasks.schedule / tasks.list / tasks.update**
-- **skills.list / skills.read**
+- **skills.list / skills.read / skills.enable / skills.disable / skills.enabled**
+- **mcp.reload** (admin only)
 - **bus.dead_letter.list / bus.dead_letter.replay** (admin only)
 
 ---
@@ -153,6 +154,7 @@ Unifies three tool sources:
 - Uses MCP `tools/list` to register tool schemas
 - Calls `tools/call` when tool is invoked
 - Applies server/tool allowlists before registration.
+- Re-syncs config dynamically during inbound processing (no restart required).
 
 ### 8.2 MCP Server (Optional)
 - Can expose host capabilities (message sending, scheduler, memory, admin ops)

@@ -7,8 +7,12 @@ import { messageTools } from "./message.js";
 import { taskTools } from "./tasks.js";
 import { skillTools } from "./skills.js";
 import { busTools } from "./bus.js";
+import { mcpTools } from "./mcp.js";
+import type { ToolContext } from "../registry.js";
 
-export const builtInTools = (): ToolSpec<any>[] => [
+export const builtInTools = (options: {
+  mcpReloader?: ToolContext["mcpReloader"];
+} = {}): ToolSpec<any>[] => [
   ...fsTools(),
   ...shellTools(),
   ...webTools(),
@@ -16,5 +20,6 @@ export const builtInTools = (): ToolSpec<any>[] => [
   ...messageTools(),
   ...taskTools(),
   ...skillTools(),
-  ...busTools()
+  ...busTools(),
+  ...mcpTools({ mcpReloader: options.mcpReloader })
 ];

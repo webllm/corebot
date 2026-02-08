@@ -35,8 +35,14 @@ export class ConversationRouter {
     private bus: MessageBus,
     private logger: Logger,
     private config: Config,
-    private skills: SkillIndexEntry[],
-    private isolatedRuntime?: IsolatedToolRuntime
+    private skills: SkillIndexEntry[] | (() => SkillIndexEntry[]),
+    private isolatedRuntime?: IsolatedToolRuntime,
+    private mcpReloader?: (params?: { force?: boolean; reason?: string }) => Promise<{
+      reloaded: boolean;
+      reason: string;
+      toolCount: number;
+      configSignature: string;
+    }>
   ) {}
 
   handleInbound = async (message: InboundMessage) => {
@@ -47,6 +53,20 @@ export class ConversationRouter {
   };
 
   private async processMessage(message: InboundMessage) {
+    if (this.mcpReloader) {
+      try {
+        await this.mcpReloader({
+          force: false,
+          reason: "inbound:auto-sync"
+        });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.logger.warn({ error: detail }, "failed to auto-sync MCP tools");
+      }
+    }
+
+    const skills = this.resolveSkills();
+
     const chat = this.storage.upsertChat({
       channel: message.channel,
       chatId: message.chatId
@@ -77,7 +97,7 @@ export class ConversationRouter {
     const { messages } = this.contextBuilder.build({
       chat,
       inbound: message,
-      skills: this.skills
+      skills
     });
 
     const toolContext = {
@@ -88,7 +108,8 @@ export class ConversationRouter {
       logger: this.logger,
       bus: this.bus,
       config: this.config,
-      skills: this.skills,
+      skills,
+      mcpReloader: this.mcpReloader,
       isolatedRuntime: this.isolatedRuntime
     };
 
@@ -206,5 +227,10 @@ export class ConversationRouter {
         error: errorMessage ?? undefined
       });
     }
+  }
+
+  private resolveSkills(): SkillIndexEntry[] {
+    const resolved = typeof this.skills === "function" ? this.skills() : this.skills;
+    return [...resolved];
   }
 }
