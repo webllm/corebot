@@ -152,6 +152,7 @@ Unifies three tool sources:
 - **message.send / chat.register / chat.set_role**
 - **tasks.schedule / tasks.list / tasks.update**
 - **skills.list / skills.read / skills.enable / skills.disable / skills.enabled**
+- **heartbeat.status / heartbeat.trigger / heartbeat.enable** (admin only)
 - **mcp.reload** (admin only)
 - **bus.dead_letter.list / bus.dead_letter.replay** (admin only)
 
@@ -224,6 +225,18 @@ Task execution modes:
 Scheduler ticks on configurable interval and emits synthetic inbound messages.
 Retries after downstream failures stay idempotent through inbound execution ledger + deterministic IDs.
 Task run logs are recorded in `task_runs`.
+
+### 10.1 Heartbeat Runner
+
+Heartbeat is implemented as a controlled synthetic inbound producer:
+
+- Per-chat due map with interval scheduling
+- Debounced wake queue (`requestNow`) that coalesces multiple triggers
+- Gate checks before dispatch: enabled flag, active-hours window, inbound-busy guard, and non-empty prompt file
+- Delivery policy in router: suppress pure ack token responses and skip recent duplicate content
+- Runtime controls: `heartbeat.status`, `heartbeat.trigger`, `heartbeat.enable` (admin only)
+
+Wake triggers currently include scheduler dispatches and normal inbound turn completions.
 
 ---
 
@@ -365,6 +378,7 @@ The `DefaultToolPolicyEngine` enforces the following rules:
 | `chat.register` (other chats) | Denied | Allowed |
 | `chat.set_role` | Denied | Allowed |
 | `tasks.update` (other chats) | Denied | Allowed |
+| `heartbeat.*` | Denied | Allowed |
 | `mcp.reload` | Denied | Allowed |
 | `bus.dead_letter.*` | Denied | Allowed |
 | `mcp__*` (all MCP tools) | Denied | Allowed |

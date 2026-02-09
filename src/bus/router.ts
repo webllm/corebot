@@ -1,4 +1,5 @@
 import type { InboundMessage, OutboundMessage, ToolMessage } from "../types.js";
+import { createHash } from "node:crypto";
 import type { SqliteStorage } from "../storage/sqlite.js";
 import type { ContextBuilder } from "../agent/context.js";
 import type { AgentRuntime } from "../agent/runtime.js";
@@ -11,6 +12,8 @@ import { nowIso } from "../util/time.js";
 import type { McpManager } from "../mcp/manager.js";
 import type { IsolatedToolRuntime } from "../isolation/runtime.js";
 import type { McpReloadRequest, McpReloadResult } from "../tools/registry.js";
+import type { RuntimeTelemetry } from "../observability/telemetry.js";
+import type { HeartbeatController } from "../heartbeat/service.js";
 
 class SerialQueue {
   private tail = Promise.resolve();
@@ -25,6 +28,17 @@ class SerialQueue {
   }
 }
 
+const normalizeHeartbeatContent = (value: string) =>
+  value.trim().replace(/\s+/g, " ");
+
+const hashHeartbeatContent = (value: string) =>
+  createHash("sha256")
+    .update(normalizeHeartbeatContent(value).toLowerCase())
+    .digest("hex");
+
+const escapeRegex = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 export class ConversationRouter {
   private queues = new Map<string, SerialQueue>();
 
@@ -38,7 +52,10 @@ export class ConversationRouter {
     private config: Config,
     private skills: SkillIndexEntry[] | (() => SkillIndexEntry[]),
     private isolatedRuntime?: IsolatedToolRuntime,
-    private mcpReloader?: (params?: McpReloadRequest) => Promise<McpReloadResult>
+    private mcpReloader?: (params?: McpReloadRequest) => Promise<McpReloadResult>,
+    private heartbeatController?: HeartbeatController,
+    private wakeHeartbeat?: (reason: string) => void,
+    private telemetry?: RuntimeTelemetry
   ) {}
 
   handleInbound = async (message: InboundMessage) => {
@@ -107,6 +124,7 @@ export class ConversationRouter {
       chat: { channel: chat.channel, chatId: chat.chatId, role: chat.role, id: chat.id },
       storage: this.storage,
       mcp: this.mcp,
+      heartbeat: this.heartbeatController,
       logger: this.logger,
       bus: this.bus,
       config: this.config,
@@ -215,8 +233,24 @@ export class ConversationRouter {
       createdAt: nowIso(),
       replyToId: message.id
     };
-
-    this.bus.publishOutbound(outbound);
+    const isHeartbeat = Boolean(message.metadata?.isHeartbeat);
+    if (isHeartbeat) {
+      const delivery = this.handleHeartbeatDelivery({
+        message,
+        chat,
+        responseContent
+      });
+      if (delivery.send) {
+        outbound.metadata = {
+          ...(message.metadata ?? {}),
+          isHeartbeat: true
+        };
+        this.bus.publishOutbound(outbound);
+      }
+    } else {
+      this.bus.publishOutbound(outbound);
+      this.wakeHeartbeat?.("router:message-processed");
+    }
 
     if (message.metadata?.taskId) {
       this.storage.logTaskRun({
@@ -234,5 +268,107 @@ export class ConversationRouter {
   private resolveSkills(): SkillIndexEntry[] {
     const resolved = typeof this.skills === "function" ? this.skills() : this.skills;
     return [...resolved];
+  }
+
+  private handleHeartbeatDelivery(params: {
+    message: InboundMessage;
+    chat: {
+      id: string;
+      channel: string;
+      chatId: string;
+      role: "admin" | "normal";
+    };
+    responseContent: string;
+  }): { send: boolean } {
+    const content = normalizeHeartbeatContent(params.responseContent);
+    const contentHash = hashHeartbeatContent(content);
+    const metadata: Record<string, unknown> = {
+      contentHash,
+      triggerReason: params.message.metadata?.heartbeatReason ?? null,
+      suppressAck: this.config.heartbeat.suppressAck
+    };
+
+    if (!content) {
+      this.recordHeartbeatDeliveryAudit({
+        chat: params.chat,
+        outcome: "skipped",
+        reason: "empty_response",
+        metadata
+      });
+      this.telemetry?.recordHeartbeat({ scope: "delivery", outcome: "skipped" });
+      return { send: false };
+    }
+
+    if (this.config.heartbeat.suppressAck) {
+      const token = this.config.heartbeat.ackToken.trim();
+      const tokenRegex = new RegExp(`^\\W*${escapeRegex(token)}\\W*$`, "i");
+      if (tokenRegex.test(content)) {
+        this.recordHeartbeatDeliveryAudit({
+          chat: params.chat,
+          outcome: "skipped",
+          reason: "ok_token",
+          metadata
+        });
+        this.telemetry?.recordHeartbeat({ scope: "delivery", outcome: "skipped" });
+        return { send: false };
+      }
+    }
+
+    const dedupeSince = new Date(
+      Date.now() - this.config.heartbeat.dedupeWindowMs
+    ).toISOString();
+    const duplicate = this.storage.hasRecentHeartbeatDelivery({
+      chatFk: params.chat.id,
+      contentHash,
+      since: dedupeSince
+    });
+    if (duplicate) {
+      this.recordHeartbeatDeliveryAudit({
+        chat: params.chat,
+        outcome: "skipped",
+        reason: "duplicate",
+        metadata
+      });
+      this.telemetry?.recordHeartbeat({ scope: "delivery", outcome: "skipped" });
+      return { send: false };
+    }
+
+    this.recordHeartbeatDeliveryAudit({
+      chat: params.chat,
+      outcome: "sent",
+      reason: contentHash,
+      metadata
+    });
+    this.telemetry?.recordHeartbeat({ scope: "delivery", outcome: "sent" });
+    return { send: true };
+  }
+
+  private recordHeartbeatDeliveryAudit(params: {
+    chat: {
+      id: string;
+      channel: string;
+      chatId: string;
+      role: "admin" | "normal";
+    };
+    outcome: "sent" | "skipped";
+    reason: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    try {
+      this.storage.insertAuditEvent({
+        at: nowIso(),
+        eventType: "heartbeat.delivery",
+        toolName: "heartbeat.delivery",
+        chatFk: params.chat.id,
+        channel: params.chat.channel,
+        chatId: params.chat.chatId,
+        actorRole: params.chat.role,
+        outcome: params.outcome,
+        reason: params.reason,
+        metadataJson: params.metadata ? JSON.stringify(params.metadata) : undefined
+      });
+    } catch {
+      // best-effort audit
+    }
   }
 }

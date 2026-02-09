@@ -15,7 +15,8 @@ export class Scheduler {
     private bus: MessageBus,
     private logger: Logger,
     private config: Config,
-    private telemetry?: RuntimeTelemetry
+    private telemetry?: RuntimeTelemetry,
+    private wakeHeartbeat?: (reason: string) => void
   ) {}
 
   start() {
@@ -78,6 +79,7 @@ export class Scheduler {
       });
     }
     this.telemetry?.recordSchedulerDispatch(delaysMs);
+    this.wakeHeartbeat?.("scheduler:dispatch");
     this.logger.info({ count: due.length }, "scheduler tick dispatched");
   }
 }

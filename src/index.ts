@@ -10,6 +10,7 @@ export { ConversationRouter } from "./bus/router.js";
 export { Scheduler } from "./scheduler/scheduler.js";
 export { SqliteStorage } from "./storage/sqlite.js";
 export { McpManager } from "./mcp/manager.js";
+export { HeartbeatService } from "./heartbeat/service.js";
 export { ToolRegistry } from "./tools/registry.js";
 export { RuntimeTelemetry } from "./observability/telemetry.js";
 

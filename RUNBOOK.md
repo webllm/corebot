@@ -18,8 +18,12 @@
    - `corebot_tools_failure_rate`
    - `corebot_scheduler_max_delay_ms`
    - `corebot_mcp_failure_rate`
+   - `corebot_heartbeat_calls_total`
+   - `corebot_heartbeat_scope_sent_total{scope="delivery"}`
+   - `corebot_heartbeat_scope_skipped_total{scope="delivery"}`
 2. For on-demand diagnostics use `GET /status`.
 3. If SLO alerts are enabled, check logs and optional `COREBOT_SLO_ALERT_WEBHOOK_URL` sink.
+4. Use admin tool `heartbeat.status` to inspect runtime enablement, next due chats, and active config.
 
 ## 3) Queue / DLQ Operations
 
@@ -109,6 +113,15 @@ When a high-risk tool (e.g., `shell.exec`) fails consecutively, the circuit brea
 3. Check `allowedMcpServers` and `allowedMcpTools` include the expected entries.
 4. Check logs for `failed to sync MCP tools`.
 5. Force reload: use `mcp.reload` tool (admin only).
+
+### Heartbeat not producing expected outbound alerts
+1. Confirm `heartbeat.enabled=true` (or use `heartbeat.enable` tool for runtime switch).
+2. Verify `heartbeat.promptPath` exists under workspace and is non-empty.
+3. Check `heartbeat.activeHours` window and local server timezone assumptions.
+4. Check `heartbeat.delivery` audit events:
+   - `reason=ok_token` means pure ACK was intentionally suppressed.
+   - `reason=duplicate` means same content hash was already sent within dedupe window.
+5. If inbound queue is continuously busy, tune `heartbeat.skipWhenInboundBusy` and `heartbeat.wakeRetryMs`.
 
 ### Scheduled task not firing
 1. Check `tasks.list` — verify `status=active` and `nextRunAt` is in the past.

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+const heartbeatActiveHoursPattern = /^$|^([01]\d|2[0-3]):([0-5]\d)-([01]\d|2[0-3]):([0-5]\d)$/;
+
 export const ConfigSchema = z.object({
   workspaceDir: z.string().default("workspace"),
   dataDir: z.string().default("data"),
@@ -26,6 +28,27 @@ export const ConfigSchema = z.object({
       failureBackoffMaxMs: z.number().int().min(100).max(3_600_000).default(60_000),
       openCircuitAfterFailures: z.number().int().min(1).max(100).default(5),
       circuitResetMs: z.number().int().min(1_000).max(3_600_000).default(30_000)
+    })
+    .prefault({}),
+  heartbeat: z
+    .object({
+      enabled: z.boolean().default(false),
+      intervalMs: z.number().int().min(1_000).max(86_400_000).default(300_000),
+      wakeDebounceMs: z.number().int().min(50).max(10_000).default(250),
+      wakeRetryMs: z.number().int().min(100).max(60_000).default(1_000),
+      promptPath: z.string().default("HEARTBEAT.md"),
+      activeHours: z
+        .string()
+        .regex(
+          heartbeatActiveHoursPattern,
+          "heartbeat.activeHours must be empty or HH:mm-HH:mm"
+        )
+        .default(""),
+      skipWhenInboundBusy: z.boolean().default(true),
+      ackToken: z.string().min(1).max(80).default("HEARTBEAT_OK"),
+      suppressAck: z.boolean().default(true),
+      dedupeWindowMs: z.number().int().min(60_000).max(604_800_000).default(86_400_000),
+      maxDispatchPerRun: z.number().int().min(1).max(1_000).default(20)
     })
     .prefault({}),
   scheduler: z

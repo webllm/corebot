@@ -70,6 +70,35 @@ export const loadConfig = (): Config => {
         ? Number(process.env.COREBOT_MCP_SYNC_CIRCUIT_RESET_MS)
         : undefined
     },
+    heartbeat: {
+      enabled: process.env.COREBOT_HEARTBEAT_ENABLED
+        ? process.env.COREBOT_HEARTBEAT_ENABLED === "true"
+        : undefined,
+      intervalMs: process.env.COREBOT_HEARTBEAT_INTERVAL_MS
+        ? Number(process.env.COREBOT_HEARTBEAT_INTERVAL_MS)
+        : undefined,
+      wakeDebounceMs: process.env.COREBOT_HEARTBEAT_WAKE_DEBOUNCE_MS
+        ? Number(process.env.COREBOT_HEARTBEAT_WAKE_DEBOUNCE_MS)
+        : undefined,
+      wakeRetryMs: process.env.COREBOT_HEARTBEAT_WAKE_RETRY_MS
+        ? Number(process.env.COREBOT_HEARTBEAT_WAKE_RETRY_MS)
+        : undefined,
+      promptPath: process.env.COREBOT_HEARTBEAT_PROMPT_PATH,
+      activeHours: process.env.COREBOT_HEARTBEAT_ACTIVE_HOURS,
+      skipWhenInboundBusy: process.env.COREBOT_HEARTBEAT_SKIP_WHEN_INBOUND_BUSY
+        ? process.env.COREBOT_HEARTBEAT_SKIP_WHEN_INBOUND_BUSY === "true"
+        : undefined,
+      ackToken: process.env.COREBOT_HEARTBEAT_ACK_TOKEN,
+      suppressAck: process.env.COREBOT_HEARTBEAT_SUPPRESS_ACK
+        ? process.env.COREBOT_HEARTBEAT_SUPPRESS_ACK === "true"
+        : undefined,
+      dedupeWindowMs: process.env.COREBOT_HEARTBEAT_DEDUPE_WINDOW_MS
+        ? Number(process.env.COREBOT_HEARTBEAT_DEDUPE_WINDOW_MS)
+        : undefined,
+      maxDispatchPerRun: process.env.COREBOT_HEARTBEAT_MAX_DISPATCH_PER_RUN
+        ? Number(process.env.COREBOT_HEARTBEAT_MAX_DISPATCH_PER_RUN)
+        : undefined
+    },
     bus: {
       pollMs: process.env.COREBOT_BUS_POLL_MS
         ? Number(process.env.COREBOT_BUS_POLL_MS)
@@ -251,6 +280,10 @@ export const loadConfig = (): Config => {
     mcpSync: {
       ...(typeof fileConfig.mcpSync === "object" ? fileConfig.mcpSync : {}),
       ...(typeof envConfig.mcpSync === "object" ? envConfig.mcpSync : {})
+    },
+    heartbeat: {
+      ...(typeof fileConfig.heartbeat === "object" ? fileConfig.heartbeat : {}),
+      ...(typeof envConfig.heartbeat === "object" ? envConfig.heartbeat : {})
     },
     webhook: {
       ...(typeof fileConfig.webhook === "object" ? fileConfig.webhook : {}),

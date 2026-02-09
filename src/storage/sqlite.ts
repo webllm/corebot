@@ -667,6 +667,19 @@ export class SqliteStorage {
     }));
   }
 
+  hasRecentHeartbeatDelivery(params: {
+    chatFk: string;
+    contentHash: string;
+    since: string;
+  }): boolean {
+    const row = this.db
+      .prepare(
+        "SELECT id FROM audit_events WHERE event_type = 'heartbeat.delivery' AND chat_fk = ? AND reason = ? AND outcome = 'sent' AND at >= ? ORDER BY at DESC LIMIT 1"
+      )
+      .get(params.chatFk, params.contentHash, params.since) as { id: number } | undefined;
+    return Boolean(row?.id);
+  }
+
   replayDeadLetterBusMessage(params: {
     id: string;
     now: string;
@@ -808,6 +821,21 @@ export class SqliteStorage {
         }
       | undefined;
     return row ? this.mapChatRow(row) : null;
+  }
+
+  listChats(limit = 500): ChatRecord[] {
+    const rows = this.db
+      .prepare("SELECT * FROM chats ORDER BY COALESCE(last_message_at, id) DESC LIMIT ?")
+      .all(limit) as Array<{
+      id: string;
+      channel: string;
+      chat_id: string;
+      display_name: string | null;
+      last_message_at: string | null;
+      role: "admin" | "normal";
+      registered: number;
+    }>;
+    return rows.map((row) => this.mapChatRow(row));
   }
 
   setChatRole(chatFk: string, role: "admin" | "normal") {

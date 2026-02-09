@@ -67,6 +67,7 @@ test("RuntimeTelemetry aggregates tool and scheduler metrics", () => {
   assert.equal(snapshot.mcpReload.totals.failures, 1);
   assert.equal(snapshot.mcpReload.totals.skipped, 1);
   assert.equal(snapshot.mcpReload.byReason.length, 3);
+  assert.equal(snapshot.heartbeat.totals.calls, 0);
 });
 
 test("Scheduler reports task delay telemetry", async () => {
@@ -261,6 +262,33 @@ test("ObservabilityServer exposes health and metrics endpoints", async () => {
             maxDurationMs: 16
           }
         ]
+      },
+      heartbeat: {
+        totals: {
+          calls: 3,
+          queued: 1,
+          sent: 1,
+          skipped: 1,
+          failed: 0
+        },
+        byScope: [
+          {
+            scope: "run",
+            calls: 1,
+            queued: 1,
+            sent: 0,
+            skipped: 0,
+            failed: 0
+          },
+          {
+            scope: "delivery",
+            calls: 2,
+            queued: 0,
+            sent: 1,
+            skipped: 1,
+            failed: 0
+          }
+        ]
       }
     }),
     getMcp: () => ({
@@ -294,6 +322,8 @@ test("ObservabilityServer exposes health and metrics endpoints", async () => {
     assert.match(text, /corebot_mcp_calls_total\{server="remote"\} 5/);
     assert.match(text, /corebot_mcp_reload_calls_total 4/);
     assert.match(text, /corebot_mcp_reload_reason_calls_total\{reason="startup"\} 1/);
+    assert.match(text, /corebot_heartbeat_calls_total 3/);
+    assert.match(text, /corebot_heartbeat_scope_sent_total\{scope="delivery"\} 1/);
 
     const status = await fetch(`${base}/status`);
     assert.equal(status.status, 200);

@@ -9,6 +9,7 @@ import type { Logger } from "pino";
 import type { ToolPolicyEngine } from "./policy.js";
 import type { RuntimeTelemetry } from "../observability/telemetry.js";
 import type { IsolatedToolRuntime } from "../isolation/runtime.js";
+import type { HeartbeatController } from "../heartbeat/service.js";
 import { nowIso } from "../util/time.js";
 
 const SENSITIVE_KEY_PATTERN = /(key|token|secret|password|authorization|cookie)/i;
@@ -41,6 +42,7 @@ export type ToolContext = {
   storage: SqliteStorage;
   mcp: McpManager;
   mcpReloader?: (params?: McpReloadRequest) => Promise<McpReloadResult>;
+  heartbeat?: HeartbeatController;
   logger: Logger;
   bus: MessageBus;
   config: Config;

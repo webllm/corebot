@@ -56,6 +56,23 @@ type TelemetrySnapshot = {
       maxDurationMs: number;
     }>;
   };
+  heartbeat: {
+    totals: {
+      calls: number;
+      queued: number;
+      sent: number;
+      skipped: number;
+      failed: number;
+    };
+    byScope: Array<{
+      scope: string;
+      calls: number;
+      queued: number;
+      sent: number;
+      skipped: number;
+      failed: number;
+    }>;
+  };
 };
 
 export class ObservabilityServer {

@@ -6,14 +6,24 @@ import { SqliteStorage } from "../src/storage/sqlite.js";
 import type { ToolContext } from "../src/tools/registry.js";
 import type { SkillIndexEntry } from "../src/skills/types.js";
 import type { IsolatedToolRuntime } from "../src/isolation/runtime.js";
+import type { HeartbeatController } from "../src/heartbeat/service.js";
 
 type TestConfigOverrides = Partial<
   Omit<
     Config,
-    "provider" | "scheduler" | "bus" | "observability" | "slo" | "isolation" | "webhook" | "cli"
+    | "provider"
+    | "heartbeat"
+    | "scheduler"
+    | "bus"
+    | "observability"
+    | "slo"
+    | "isolation"
+    | "webhook"
+    | "cli"
   >
 > & {
   provider?: Partial<Config["provider"]>;
+  heartbeat?: Partial<Config["heartbeat"]>;
   scheduler?: Partial<Config["scheduler"]>;
   bus?: Partial<Config["bus"]>;
   observability?: Partial<Config["observability"]>;
@@ -51,6 +61,19 @@ export const createConfig = (
       failureBackoffMaxMs: 60_000,
       openCircuitAfterFailures: 5,
       circuitResetMs: 30_000
+    },
+    heartbeat: {
+      enabled: false,
+      intervalMs: 300_000,
+      wakeDebounceMs: 250,
+      wakeRetryMs: 1_000,
+      promptPath: "HEARTBEAT.md",
+      activeHours: "",
+      skipWhenInboundBusy: true,
+      ackToken: "HEARTBEAT_OK",
+      suppressAck: true,
+      dedupeWindowMs: 86_400_000,
+      maxDispatchPerRun: 20
     },
     scheduler: { tickMs: 60_000 },
     bus: {
@@ -122,6 +145,7 @@ export const createConfig = (
     ...base,
     ...overrides,
     provider: { ...base.provider, ...(overrides.provider ?? {}) },
+    heartbeat: { ...base.heartbeat, ...(overrides.heartbeat ?? {}) },
     scheduler: { ...base.scheduler, ...(overrides.scheduler ?? {}) },
     bus: { ...base.bus, ...(overrides.bus ?? {}) },
     observability: {
@@ -181,6 +205,7 @@ export const createToolContext = (params: {
   chatFk?: string;
   skills?: SkillIndexEntry[];
   isolatedRuntime?: IsolatedToolRuntime;
+  heartbeat?: HeartbeatController;
 }) => {
   const outbound: Array<{ channel: string; chatId: string; content: string }> = [];
   const chat = {
@@ -195,6 +220,7 @@ export const createToolContext = (params: {
     chat,
     storage: params.storage,
     mcp: {} as any,
+    heartbeat: params.heartbeat,
     logger: createNoopLogger(),
     bus: {
       publishInbound: () => undefined,

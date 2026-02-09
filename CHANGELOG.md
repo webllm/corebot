@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Added
 - **Agent runtime** with OpenAI-compatible LLM provider and tool-calling loop (max 8 iterations).
 - **Built-in tools**: `fs.read`, `fs.write`, `fs.list`, `shell.exec`, `web.fetch`, `web.search`, `memory.read`, `memory.write`, `message.send`, `chat.register`, `chat.set_role`, `tasks.schedule`, `tasks.list`, `tasks.update`, `skills.list`, `skills.read`, `skills.enable`, `skills.disable`, `skills.enabled`, `mcp.reload`, `bus.dead_letter.list`, `bus.dead_letter.replay`.
+- **Heartbeat subsystem** with per-chat scheduler, wake debounce, inbound-busy gating, ACK suppression, duplicate-delivery guard, and admin control tools (`heartbeat.status`, `heartbeat.trigger`, `heartbeat.enable`).
 - **CLI channel** for local interactive usage.
 - **Webhook channel** with inbound POST and outbound pull API, optional bearer token auth.
 - **Skills system** via `SKILL.md` files with YAML frontmatter, progressive loading, and hot-reload.

@@ -8,6 +8,7 @@ import { taskTools } from "./tasks.js";
 import { skillTools } from "./skills.js";
 import { busTools } from "./bus.js";
 import { mcpTools } from "./mcp.js";
+import { heartbeatTools } from "./heartbeat.js";
 import type { ToolContext } from "../registry.js";
 
 export const builtInTools = (options: {
@@ -21,5 +22,6 @@ export const builtInTools = (options: {
   ...taskTools(),
   ...skillTools(),
   ...busTools(),
+  ...heartbeatTools(),
   ...mcpTools({ mcpReloader: options.mcpReloader })
 ];

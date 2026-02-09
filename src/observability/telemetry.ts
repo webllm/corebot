@@ -21,6 +21,14 @@ type McpReloadMetric = {
   maxDurationMs: number;
 };
 
+type HeartbeatMetric = {
+  calls: number;
+  queued: number;
+  sent: number;
+  skipped: number;
+  failed: number;
+};
+
 const createMcpReloadMetric = (): McpReloadMetric => ({
   calls: 0,
   reloaded: 0,
@@ -28,6 +36,14 @@ const createMcpReloadMetric = (): McpReloadMetric => ({
   skipped: 0,
   totalDurationMs: 0,
   maxDurationMs: 0
+});
+
+const createHeartbeatMetric = (): HeartbeatMetric => ({
+  calls: 0,
+  queued: 0,
+  sent: 0,
+  skipped: 0,
+  failed: 0
 });
 
 const sanitizeReasonLabel = (reason: string) => {
@@ -48,6 +64,8 @@ export class RuntimeTelemetry {
   };
   private mcpReloadTotals: McpReloadMetric = createMcpReloadMetric();
   private mcpReloadByReason = new Map<string, McpReloadMetric>();
+  private heartbeatTotals: HeartbeatMetric = createHeartbeatMetric();
+  private heartbeatByScope = new Map<string, HeartbeatMetric>();
 
   recordToolExecution(name: string, durationMs: number, success: boolean) {
     const metric = this.toolMetrics.get(name) ?? {
@@ -100,6 +118,31 @@ export class RuntimeTelemetry {
     applyOutcome(total);
     applyOutcome(byReason);
     this.mcpReloadByReason.set(reasonLabel, byReason);
+  }
+
+  recordHeartbeat(params: {
+    scope: "run" | "delivery";
+    outcome: "queued" | "sent" | "skipped" | "failed";
+  }) {
+    const total = this.heartbeatTotals;
+    const byScope = this.heartbeatByScope.get(params.scope) ?? createHeartbeatMetric();
+
+    const applyOutcome = (metric: HeartbeatMetric) => {
+      metric.calls += 1;
+      if (params.outcome === "queued") {
+        metric.queued += 1;
+      } else if (params.outcome === "sent") {
+        metric.sent += 1;
+      } else if (params.outcome === "skipped") {
+        metric.skipped += 1;
+      } else {
+        metric.failed += 1;
+      }
+    };
+
+    applyOutcome(total);
+    applyOutcome(byScope);
+    this.heartbeatByScope.set(params.scope, byScope);
   }
 
   snapshot() {
@@ -171,6 +214,25 @@ export class RuntimeTelemetry {
             failureRate: metric.calls > 0 ? metric.failures / metric.calls : 0,
             avgDurationMs: metric.calls > 0 ? metric.totalDurationMs / metric.calls : 0,
             maxDurationMs: metric.maxDurationMs
+          }))
+          .sort((a, b) => b.calls - a.calls)
+      },
+      heartbeat: {
+        totals: {
+          calls: this.heartbeatTotals.calls,
+          queued: this.heartbeatTotals.queued,
+          sent: this.heartbeatTotals.sent,
+          skipped: this.heartbeatTotals.skipped,
+          failed: this.heartbeatTotals.failed
+        },
+        byScope: [...this.heartbeatByScope.entries()]
+          .map(([scope, metric]) => ({
+            scope,
+            calls: metric.calls,
+            queued: metric.queued,
+            sent: metric.sent,
+            skipped: metric.skipped,
+            failed: metric.failed
           }))
           .sort((a, b) => b.calls - a.calls)
       }

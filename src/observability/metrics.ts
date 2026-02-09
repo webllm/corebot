@@ -52,6 +52,23 @@ type TelemetrySnapshot = {
       maxDurationMs: number;
     }>;
   };
+  heartbeat: {
+    totals: {
+      calls: number;
+      queued: number;
+      sent: number;
+      skipped: number;
+      failed: number;
+    };
+    byScope: Array<{
+      scope: string;
+      calls: number;
+      queued: number;
+      sent: number;
+      skipped: number;
+      failed: number;
+    }>;
+  };
 };
 
 const line = (name: string, value: number, labels?: Record<string, string>) => {
@@ -151,6 +168,25 @@ export const renderPrometheusMetrics = (params: {
       line("corebot_mcp_reload_reason_max_duration_ms", metric.maxDurationMs, {
         reason: metric.reason
       })
+    );
+  }
+
+  lines.push(line("corebot_heartbeat_calls_total", params.telemetry.heartbeat.totals.calls));
+  lines.push(line("corebot_heartbeat_queued_total", params.telemetry.heartbeat.totals.queued));
+  lines.push(line("corebot_heartbeat_sent_total", params.telemetry.heartbeat.totals.sent));
+  lines.push(line("corebot_heartbeat_skipped_total", params.telemetry.heartbeat.totals.skipped));
+  lines.push(line("corebot_heartbeat_failed_total", params.telemetry.heartbeat.totals.failed));
+  for (const metric of params.telemetry.heartbeat.byScope) {
+    lines.push(line("corebot_heartbeat_scope_calls_total", metric.calls, { scope: metric.scope }));
+    lines.push(
+      line("corebot_heartbeat_scope_queued_total", metric.queued, { scope: metric.scope })
+    );
+    lines.push(line("corebot_heartbeat_scope_sent_total", metric.sent, { scope: metric.scope }));
+    lines.push(
+      line("corebot_heartbeat_scope_skipped_total", metric.skipped, { scope: metric.scope })
+    );
+    lines.push(
+      line("corebot_heartbeat_scope_failed_total", metric.failed, { scope: metric.scope })
     );
   }
 

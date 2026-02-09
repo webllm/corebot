@@ -22,6 +22,7 @@ import { WebhookChannel } from "./channels/webhook.js";
 import type { Channel } from "./channels/base.js";
 import { Scheduler } from "./scheduler/scheduler.js";
 import { IsolatedToolRuntime } from "./isolation/runtime.js";
+import { HeartbeatService } from "./heartbeat/service.js";
 import type {
   ToolContext,
   McpReloadRequest,
@@ -69,7 +70,8 @@ export class CorebotApp {
     readonly toolRegistry: ToolRegistry,
     readonly runtime: AgentRuntime,
     readonly bus: MessageBus,
-    readonly scheduler: Scheduler
+    readonly scheduler: Scheduler,
+    readonly heartbeatService: HeartbeatService
   ) {
     const getQueueSnapshot = () => ({
       inbound: this.storage.countBusMessagesByStatus("inbound"),
@@ -77,7 +79,11 @@ export class CorebotApp {
     });
     const getTelemetrySnapshot = () => this.telemetry.snapshot();
     const getMcpSnapshot = () => this.mcpManager.getHealthSnapshot();
-    const readiness = () => !this.shuttingDown && this.bus.isRunning() && this.scheduler.isRunning();
+    const readiness = () =>
+      !this.shuttingDown &&
+      this.bus.isRunning() &&
+      this.scheduler.isRunning() &&
+      this.heartbeatService.isRunning();
 
     this.observabilityServer = new ObservabilityServer(this.config, this.logger, {
       startedAtMs: Date.now(),
@@ -120,6 +126,7 @@ export class CorebotApp {
 
     this.bus.start();
     this.scheduler.start();
+    this.heartbeatService.start();
     await this.observabilityServer.start();
 
     this.startupComplete = true;
@@ -157,6 +164,7 @@ export class CorebotApp {
       return;
     }
     this.shuttingDown = true;
+    this.heartbeatService.stop();
     this.scheduler.stop();
     this.bus.stop();
 
@@ -465,6 +473,7 @@ export const createCorebotApp = async (
   const provider = new OpenAICompatibleProvider(config);
   const runtime = new AgentRuntime(provider, toolRegistry, config, logger);
   const bus = new MessageBus(storage, config, logger);
+  const heartbeatService = new HeartbeatService(storage, bus, config, logger, telemetry);
   const contextBuilder = new ContextBuilder(storage, config, config.workspaceDir);
   const router = new ConversationRouter(
     storage,
@@ -476,10 +485,20 @@ export const createCorebotApp = async (
     config,
     () => skillLoader.listSkills(),
     isolatedRuntime,
-    mcpReloader
+    mcpReloader,
+    heartbeatService,
+    (reason) => heartbeatService.requestNow({ reason }),
+    telemetry
   );
   bus.onInbound(router.handleInbound);
-  const scheduler = new Scheduler(storage, bus, logger, config, telemetry);
+  const scheduler = new Scheduler(
+    storage,
+    bus,
+    logger,
+    config,
+    telemetry,
+    (reason) => heartbeatService.requestNow({ reason })
+  );
 
   return new CorebotApp(
     config,
@@ -491,6 +510,7 @@ export const createCorebotApp = async (
     toolRegistry,
     runtime,
     bus,
-    scheduler
+    scheduler,
+    heartbeatService
   );
 };

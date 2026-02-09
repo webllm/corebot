@@ -72,6 +72,10 @@ export class DefaultToolPolicyEngine implements ToolPolicyEngine {
       return deny("Only admin can operate dead-letter queues.");
     }
 
+    if (toolName.startsWith("heartbeat.") && role !== "admin") {
+      return deny("Only admin can control heartbeat.");
+    }
+
     if (toolName === "shell.exec" && role !== "admin") {
       return deny("Only admin can use shell.exec.");
     }

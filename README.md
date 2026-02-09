@@ -15,6 +15,7 @@ Single-process by default, tool- and skill-driven, MCP-ready, and safe-by-defaul
 - **MCP client** integration (tools injected dynamically)
 - **SQLite storage** for chats, messages, summaries, and tasks
 - **Scheduler** with `cron | interval | once`
+- **Agent heartbeat** loop with debounce wake, ack suppression, and duplicate-delivery guard
 - **CLI channel** for local usage (other channels stubbed)
 - **Isolated tool runtime** for high-risk tools (`shell.exec`, `web.fetch`, `fs.write`)
 - **Durable queue with idempotent publish** (retry/dead-letter/replay + dedupe by message id)
@@ -139,6 +140,19 @@ You can configure via `config.json` or environment variables.
     "openCircuitAfterFailures": 5,
     "circuitResetMs": 30000
   },
+  "heartbeat": {
+    "enabled": false,
+    "intervalMs": 300000,
+    "wakeDebounceMs": 250,
+    "wakeRetryMs": 1000,
+    "promptPath": "HEARTBEAT.md",
+    "activeHours": "",
+    "skipWhenInboundBusy": true,
+    "ackToken": "HEARTBEAT_OK",
+    "suppressAck": true,
+    "dedupeWindowMs": 86400000,
+    "maxDispatchPerRun": 20
+  },
   "scheduler": { "tickMs": 60000 },
   "bus": {
     "pollMs": 1000,
@@ -221,6 +235,17 @@ You can configure via `config.json` or environment variables.
 - `COREBOT_MCP_SYNC_BACKOFF_MAX_MS`
 - `COREBOT_MCP_SYNC_OPEN_CIRCUIT_AFTER_FAILURES`
 - `COREBOT_MCP_SYNC_CIRCUIT_RESET_MS`
+- `COREBOT_HEARTBEAT_ENABLED`
+- `COREBOT_HEARTBEAT_INTERVAL_MS`
+- `COREBOT_HEARTBEAT_WAKE_DEBOUNCE_MS`
+- `COREBOT_HEARTBEAT_WAKE_RETRY_MS`
+- `COREBOT_HEARTBEAT_PROMPT_PATH`
+- `COREBOT_HEARTBEAT_ACTIVE_HOURS`
+- `COREBOT_HEARTBEAT_SKIP_WHEN_INBOUND_BUSY`
+- `COREBOT_HEARTBEAT_ACK_TOKEN`
+- `COREBOT_HEARTBEAT_SUPPRESS_ACK`
+- `COREBOT_HEARTBEAT_DEDUPE_WINDOW_MS`
+- `COREBOT_HEARTBEAT_MAX_DISPATCH_PER_RUN`
 - `COREBOT_ISOLATION_ENABLED`
 - `COREBOT_ISOLATION_TOOLS`
 - `COREBOT_ISOLATION_WORKER_TIMEOUT_MS`
@@ -283,6 +308,8 @@ Notes:
 - Default policy denies non-admin `fs.write` to protected paths (`skills/`, `IDENTITY.md`, `TOOLS.md`, `USER.md`, `.mcp.json`).
 - `COREBOT_MCP_ALLOWED_SERVERS` and `COREBOT_MCP_ALLOWED_TOOLS` act as allowlists when set; empty lists allow all discovered MCP servers/tools.
 - `COREBOT_MCP_SYNC_*` controls MCP auto-sync retry backoff and temporary circuit-open window after repeated failures.
+- `COREBOT_HEARTBEAT_ACTIVE_HOURS` accepts `HH:mm-HH:mm` in local process time; empty means always active.
+- `COREBOT_HEARTBEAT_PROMPT_PATH` is resolved relative to `workspaceDir` and must be non-empty to dispatch heartbeat turns.
 - `COREBOT_WEBHOOK_AUTH_TOKEN` can be sent via `Authorization: Bearer <token>` or `x-corebot-token`.
 - `COREBOT_ADMIN_BOOTSTRAP_SINGLE_USE=true` invalidates bootstrap elevation after first successful use.
 - `COREBOT_ADMIN_BOOTSTRAP_MAX_ATTEMPTS` and `COREBOT_ADMIN_BOOTSTRAP_LOCKOUT_MINUTES` control invalid-key lockout policy.
@@ -366,6 +393,7 @@ jobs:
 - `message.send`, `chat.register`, `chat.set_role`
 - `tasks.schedule`, `tasks.list`, `tasks.update`
 - `skills.list`, `skills.read`, `skills.enable`, `skills.disable`, `skills.enabled`
+- `heartbeat.status`, `heartbeat.trigger`, `heartbeat.enable` (admin only)
 - `mcp.reload` (admin only; force refresh MCP config and tool bindings)
 - `bus.dead_letter.list`, `bus.dead_letter.replay` (admin only)
 
@@ -435,6 +463,9 @@ Memory files: `workspace/memory/MEMORY.md` (global), `workspace/memory/{channel}
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
+| `heartbeat.status` | *(none)* | Show heartbeat runtime status, config, and next due chats. Admin only. |
+| `heartbeat.trigger` | `reason?: string`, `force?: boolean`, `channel?: string`, `chatId?: string` | Queue an immediate heartbeat wake (optional force and target chat). Admin only. |
+| `heartbeat.enable` | `enabled: boolean`, `reason?: string` | Enable/disable runtime heartbeat loop without restart. Admin only. |
 | `mcp.reload` | `reason?: string`, `force?: boolean` (default `true`) | Reload MCP config and re-register tools. Set `force=false` to respect no-change checks and failure backoff. Admin only. |
 | `bus.dead_letter.list` | `direction?: "inbound"\|"outbound"`, `limit?: number` (default 20) | List dead-letter queue entries. Admin only. |
 | `bus.dead_letter.replay` | `queueId?: string`, `direction?: "inbound"\|"outbound"`, `limit?: number` (default 10) | Replay dead-letter entries back to pending. Admin only. |
@@ -472,6 +503,7 @@ The first admin is created through a bootstrap flow:
 | Register other chats | No | Yes |
 | Update own tasks | Yes | Yes |
 | Update other chats' tasks | No | Yes |
+| Heartbeat control/status tools | No | Yes |
 | MCP tool execution | No | Yes |
 | MCP reload | No | Yes |
 | Dead-letter queue operations | No | Yes |
@@ -553,6 +585,18 @@ If `.mcp.json` is invalid (for example malformed JSON), reload is rejected and t
 Each enabled server must define exactly one of `command` or `url`; `args/env` are only valid with `command`.
 Use `corebot preflight` to validate config and `.mcp.json` before rolling out changes.
 Reload attempts are tracked in telemetry (`corebot_mcp_reload_*`) and persisted in `audit_events` with reason/duration metadata.
+
+## Agent Heartbeat
+
+Heartbeat runs as a synthetic inbound turn per chat and reuses the same router/runtime/tool stack. It supports:
+
+- interval scheduling per chat
+- wake coalescing (debounce)
+- inbound-busy skip/retry gate
+- ack suppression (`ackToken`)
+- recent duplicate suppression (`dedupeWindowMs`)
+
+Behavior controls live under `heartbeat.*` config and are also available via admin tools `heartbeat.status`, `heartbeat.trigger`, and `heartbeat.enable`.
 
 ## Scheduler
 
