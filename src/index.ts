@@ -1,5 +1,6 @@
 export { createCorebotApp, CorebotApp, type CreateCorebotAppOptions } from "./app.js";
 export { main } from "./main.js";
+export { runPreflightChecks, type PreflightOptions, type PreflightReport } from "./preflight.js";
 
 export { loadConfig } from "./config/load.js";
 export type { Config } from "./config/schema.js";

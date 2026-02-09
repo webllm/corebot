@@ -3,6 +3,7 @@ import type { ToolDefinition } from "../types.js";
 import type { McpConfigFile, McpServerConfig } from "./types.js";
 import type { Logger } from "pino";
 import { isMcpServerAllowed, isMcpToolAllowed } from "./allowlist.js";
+import { parseMcpConfigJson } from "./config.js";
 
 export type McpToolInfo = {
   server: string;
@@ -78,6 +79,9 @@ export class McpManager {
   private tools = new Map<string, McpToolInfo>();
   private factory: McpClientFactory;
   private serverHealth = new Map<string, McpServerHealth>();
+  private activeCallsByClient = new Map<McpClientInstance, number>();
+  private idleWaitersByClient = new Map<McpClientInstance, Array<() => void>>();
+  private readonly closeDrainTimeoutMs: number;
   private logger?: Pick<Logger, "warn" | "info" | "error" | "debug">;
   private allowedServers: string[];
   private allowedTools: string[];
@@ -87,11 +91,13 @@ export class McpManager {
     logger?: Pick<Logger, "warn" | "info" | "error" | "debug">;
     allowedServers?: string[];
     allowedTools?: string[];
+    closeDrainTimeoutMs?: number;
   }) {
     this.factory = options?.factory ?? defaultClientFactory;
     this.logger = options?.logger;
     this.allowedServers = options?.allowedServers ?? [];
     this.allowedTools = options?.allowedTools ?? [];
+    this.closeDrainTimeoutMs = Math.max(0, options?.closeDrainTimeoutMs ?? 10_000);
   }
 
   async loadFromConfig(configPath: string): Promise<ToolDefinition[]> {
@@ -119,6 +125,7 @@ export class McpManager {
     if (!client) {
       throw new Error(`MCP client not connected for ${info.server}`);
     }
+    this.acquireClient(client);
     try {
       const result = await client.callTool({ name: info.name, arguments: args });
       this.setServerHealth(info.server, {
@@ -138,6 +145,8 @@ export class McpManager {
         callFailed: true
       });
       throw error;
+    } finally {
+      this.releaseClient(client);
     }
   }
 
@@ -200,17 +209,7 @@ export class McpManager {
     }
 
     const raw = fs.readFileSync(configPath, "utf-8");
-    let parsed: McpConfigFile;
-    try {
-      parsed = JSON.parse(raw) as McpConfigFile;
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      throw new Error(`Invalid MCP config JSON: ${detail}`);
-    }
-
-    if (!parsed || typeof parsed !== "object" || !parsed.servers || typeof parsed.servers !== "object") {
-      throw new Error("Invalid MCP config: missing 'servers' object.");
-    }
+    const parsed: McpConfigFile = parseMcpConfigJson(raw);
 
     const clients = new Map<string, McpClientInstance>();
     const tools = new Map<string, McpToolInfo>();
@@ -314,7 +313,16 @@ export class McpManager {
 
   private async closeClientMap(clients: Map<string, McpClientInstance>) {
     for (const [name, client] of clients.entries()) {
+      const drained = await this.waitForClientIdle(client);
+      if (!drained) {
+        this.logger?.warn(
+          { server: name, timeoutMs: this.closeDrainTimeoutMs },
+          "closing MCP client with active in-flight calls after drain timeout"
+        );
+      }
       if (!client.close) {
+        this.activeCallsByClient.delete(client);
+        this.idleWaitersByClient.delete(client);
         continue;
       }
       try {
@@ -322,8 +330,70 @@ export class McpManager {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         this.logger?.warn({ server: name, error: message }, "failed to close MCP client");
+      } finally {
+        this.activeCallsByClient.delete(client);
+        this.idleWaitersByClient.delete(client);
       }
     }
     clients.clear();
+  }
+
+  private acquireClient(client: McpClientInstance) {
+    const active = this.activeCallsByClient.get(client) ?? 0;
+    this.activeCallsByClient.set(client, active + 1);
+  }
+
+  private releaseClient(client: McpClientInstance) {
+    const active = this.activeCallsByClient.get(client) ?? 0;
+    const next = Math.max(0, active - 1);
+    if (next === 0) {
+      this.activeCallsByClient.delete(client);
+      const waiters = this.idleWaitersByClient.get(client);
+      if (waiters && waiters.length > 0) {
+        this.idleWaitersByClient.delete(client);
+        for (const waiter of waiters) {
+          waiter();
+        }
+      }
+      return;
+    }
+    this.activeCallsByClient.set(client, next);
+  }
+
+  private async waitForClientIdle(client: McpClientInstance): Promise<boolean> {
+    if ((this.activeCallsByClient.get(client) ?? 0) === 0) {
+      return true;
+    }
+    if (this.closeDrainTimeoutMs <= 0) {
+      return false;
+    }
+
+    return new Promise<boolean>((resolve) => {
+      const waiter = () => {
+        clearTimeout(timeout);
+        resolve(true);
+      };
+      const waiters = this.idleWaitersByClient.get(client) ?? [];
+      waiters.push(waiter);
+      this.idleWaitersByClient.set(client, waiters);
+
+      const timeout = setTimeout(() => {
+        this.removeIdleWaiter(client, waiter);
+        resolve((this.activeCallsByClient.get(client) ?? 0) === 0);
+      }, this.closeDrainTimeoutMs);
+    });
+  }
+
+  private removeIdleWaiter(client: McpClientInstance, waiter: () => void) {
+    const waiters = this.idleWaitersByClient.get(client);
+    if (!waiters) {
+      return;
+    }
+    const next = waiters.filter((entry) => entry !== waiter);
+    if (next.length === 0) {
+      this.idleWaitersByClient.delete(client);
+      return;
+    }
+    this.idleWaitersByClient.set(client, next);
   }
 }

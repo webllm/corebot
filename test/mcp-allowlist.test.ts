@@ -191,6 +191,142 @@ test("McpManager keeps last-known-good tools when config parse fails", async () 
   }
 });
 
+test("McpManager rejects invalid config schema and preserves last-known-good", async () => {
+  const manager = new McpManager({
+    factory: {
+      async createClient(server) {
+        return {
+          client: {
+            async listTools() {
+              return [{ name: "echo", description: `${server.name}-echo` }];
+            },
+            async callTool() {
+              return { server: server.name };
+            },
+            async connect() {
+              return;
+            },
+            async close() {
+              return;
+            }
+          }
+        };
+      }
+    },
+    logger: {
+      info: () => undefined,
+      warn: () => undefined
+    } as any
+  });
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "corebot-mcp-schema-"));
+  try {
+    const configPath = path.join(root, "mcp.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        servers: {
+          alpha: { command: "noop" }
+        }
+      }),
+      "utf-8"
+    );
+    await manager.reloadFromConfig(configPath);
+    assert.deepEqual(await manager.callTool("mcp__alpha__echo", {}), { server: "alpha" });
+
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        servers: {
+          broken: {
+            command: "noop",
+            url: "http://localhost:1234"
+          }
+        }
+      }),
+      "utf-8"
+    );
+    await assert.rejects(manager.reloadFromConfig(configPath), /Invalid MCP config/);
+    assert.deepEqual(await manager.callTool("mcp__alpha__echo", {}), { server: "alpha" });
+  } finally {
+    await manager.shutdown();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("McpManager concurrent reload does not close active clients mid-call", async () => {
+  let closeWhileActive = 0;
+  let generation = 0;
+
+  const manager = new McpManager({
+    closeDrainTimeoutMs: 1_000,
+    factory: {
+      async createClient(server) {
+        const currentGeneration = ++generation;
+        let active = 0;
+        return {
+          client: {
+            async listTools() {
+              return [{ name: "echo", description: `${server.name}-echo` }];
+            },
+            async callTool() {
+              active += 1;
+              await new Promise((resolve) => setTimeout(resolve, 10));
+              active -= 1;
+              return { server: server.name, generation: currentGeneration };
+            },
+            async connect() {
+              return;
+            },
+            async close() {
+              if (active > 0) {
+                closeWhileActive += 1;
+              }
+            }
+          }
+        };
+      }
+    },
+    logger: {
+      info: () => undefined,
+      warn: () => undefined
+    } as any
+  });
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "corebot-mcp-concurrent-"));
+  try {
+    const configPath = path.join(root, "mcp.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        servers: {
+          demo: { command: "noop" }
+        }
+      }),
+      "utf-8"
+    );
+    await manager.reloadFromConfig(configPath);
+
+    for (let round = 0; round < 12; round += 1) {
+      const calls = Array.from({ length: 8 }, () => manager.callTool("mcp__demo__echo", {}));
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      const reload = manager.reloadFromConfig(configPath);
+      const results = await Promise.all(calls);
+      await reload;
+      assert.equal(results.length, 8);
+      assert.equal(
+        results.every((result) => (result as { server?: string }).server === "demo"),
+        true
+      );
+    }
+
+    assert.equal(closeWhileActive, 0);
+  } finally {
+    await manager.shutdown();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Policy engine enforces MCP allowlists for admin calls", async () => {
   const fixture = createStorageFixture({
     allowedMcpServers: ["good"],

@@ -56,6 +56,20 @@ export const loadConfig = (): Config => {
       : undefined,
     skillsDir: process.env.COREBOT_SKILLS_DIR,
     mcpConfigPath: process.env.COREBOT_MCP_CONFIG,
+    mcpSync: {
+      failureBackoffBaseMs: process.env.COREBOT_MCP_SYNC_BACKOFF_BASE_MS
+        ? Number(process.env.COREBOT_MCP_SYNC_BACKOFF_BASE_MS)
+        : undefined,
+      failureBackoffMaxMs: process.env.COREBOT_MCP_SYNC_BACKOFF_MAX_MS
+        ? Number(process.env.COREBOT_MCP_SYNC_BACKOFF_MAX_MS)
+        : undefined,
+      openCircuitAfterFailures: process.env.COREBOT_MCP_SYNC_OPEN_CIRCUIT_AFTER_FAILURES
+        ? Number(process.env.COREBOT_MCP_SYNC_OPEN_CIRCUIT_AFTER_FAILURES)
+        : undefined,
+      circuitResetMs: process.env.COREBOT_MCP_SYNC_CIRCUIT_RESET_MS
+        ? Number(process.env.COREBOT_MCP_SYNC_CIRCUIT_RESET_MS)
+        : undefined
+    },
     bus: {
       pollMs: process.env.COREBOT_BUS_POLL_MS
         ? Number(process.env.COREBOT_BUS_POLL_MS)
@@ -233,6 +247,10 @@ export const loadConfig = (): Config => {
     isolation: {
       ...(typeof fileConfig.isolation === "object" ? fileConfig.isolation : {}),
       ...(typeof envConfig.isolation === "object" ? envConfig.isolation : {})
+    },
+    mcpSync: {
+      ...(typeof fileConfig.mcpSync === "object" ? fileConfig.mcpSync : {}),
+      ...(typeof envConfig.mcpSync === "object" ? envConfig.mcpSync : {})
     },
     webhook: {
       ...(typeof fileConfig.webhook === "object" ? fileConfig.webhook : {}),

@@ -64,6 +64,8 @@ export type McpReloadResult = {
   reason: string;
   toolCount: number;
   configSignature: string;
+  skipCause?: "unchanged" | "backoff" | "circuit_open";
+  retryAt?: string;
 };
 
 export interface ToolSpec<TArgs extends z.ZodType = z.ZodType> {

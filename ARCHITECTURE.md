@@ -165,8 +165,10 @@ Unifies three tool sources:
 - Uses MCP `tools/list` to register tool schemas
 - Calls `tools/call` when tool is invoked
 - Applies server/tool allowlists before registration.
+- Validates `.mcp.json` against strict schema (server naming + command/url exclusivity).
 - Re-syncs config dynamically during inbound processing (no restart required).
 - Reload applies atomically; invalid config keeps last-known-good MCP tool bindings.
+- Auto-sync retries use exponential backoff and open-circuit cooldown after repeated failures.
 - Reload outcomes are observable via telemetry metrics and `audit_events`.
 
 ### 8.2 MCP Server (Future)
@@ -460,6 +462,7 @@ corebot/
         bus.ts           # bus.dead_letter.list, bus.dead_letter.replay
     mcp/
       manager.ts         # MCP client: connect, discover, call
+      config.ts          # MCP config schema + parser
       allowlist.ts       # Server/tool allowlist enforcement
       types.ts           # MCP configuration types
     skills/
@@ -554,7 +557,7 @@ sequenceDiagram
 
 `config.json` or environment variables. See `README.md` for the full reference.
 
-Key config areas: provider, bus (queue/retry/rate-limit), observability, SLO, isolation, security (shell/web/MCP allowlists), admin bootstrap, webhook, CLI.
+Key config areas: provider, bus (queue/retry/rate-limit), observability, SLO, isolation, security (shell/web/MCP allowlists), MCP sync backoff/circuit (`mcpSync`), admin bootstrap, webhook, CLI.
 
 ---
 

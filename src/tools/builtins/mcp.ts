@@ -16,11 +16,12 @@ export const mcpTools = (options: McpToolsOptions = {}): ToolSpec<any>[] => {
     description:
       "Reload MCP server config and re-register MCP tools without restarting the process.",
     schema: z.object({
-      reason: z.string().max(200).optional()
+      reason: z.string().max(200).optional(),
+      force: z.boolean().optional()
     }),
     async run(args, ctx) {
       const result = await mcpReloader({
-        force: true,
+        force: args.force ?? true,
         reason: args.reason ?? "manual:tool",
         audit: {
           chatFk: ctx.chat.id,

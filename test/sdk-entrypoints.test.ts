@@ -124,3 +124,103 @@ test("mcp.reload records telemetry and audit metadata with reason", async () => 
     fs.rmSync(fixture.rootDir, { recursive: true, force: true });
   }
 });
+
+test("mcp.reload non-force applies backoff and circuit after repeated failures", async () => {
+  const fixture = createStorageFixture({
+    cli: { enabled: false },
+    webhook: { enabled: false },
+    observability: {
+      enabled: false,
+      http: { enabled: false }
+    },
+    mcpSync: {
+      failureBackoffBaseMs: 50,
+      failureBackoffMaxMs: 50,
+      openCircuitAfterFailures: 2,
+      circuitResetMs: 300
+    }
+  });
+  fs.writeFileSync(fixture.config.mcpConfigPath, "{ bad json", "utf-8");
+
+  const app = await createCorebotApp({
+    config: fixture.config,
+    logger
+  });
+
+  const chat = app.storage.upsertChat({ channel: "cli", chatId: "admin" });
+  app.storage.setChatRole(chat.id, "admin");
+  const context = {
+    workspaceDir: fixture.workspaceDir,
+    chat: {
+      channel: "cli" as const,
+      chatId: "admin",
+      role: "admin" as const,
+      id: chat.id
+    },
+    storage: app.storage,
+    mcp: app.mcpManager,
+    logger,
+    bus: app.bus,
+    config: app.config,
+    skills: []
+  };
+
+  try {
+    const firstOutput = await app.toolRegistry.execute(
+      "mcp.reload",
+      { reason: "manual:test-throttle", force: false },
+      context
+    );
+    const firstResult = JSON.parse(firstOutput) as {
+      reloaded: boolean;
+      skipCause?: string;
+      retryAt?: string;
+    };
+    assert.equal(firstResult.reloaded, false);
+    assert.equal(firstResult.skipCause, "backoff");
+    assert.ok(firstResult.retryAt);
+
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    await assert.rejects(
+      app.toolRegistry.execute(
+        "mcp.reload",
+        { reason: "manual:test-throttle", force: false },
+        context
+      ),
+      /Invalid MCP config JSON/
+    );
+
+    const thirdOutput = await app.toolRegistry.execute(
+      "mcp.reload",
+      { reason: "manual:test-throttle", force: false },
+      context
+    );
+    const thirdResult = JSON.parse(thirdOutput) as {
+      reloaded: boolean;
+      skipCause?: string;
+      retryAt?: string;
+    };
+    assert.equal(thirdResult.reloaded, false);
+    assert.equal(thirdResult.skipCause, "circuit_open");
+    assert.ok(thirdResult.retryAt);
+
+    const telemetry = app.telemetry.snapshot();
+    const backoffMetric = telemetry.mcpReload.byReason.find(
+      (entry) => entry.reason === "manual:test-throttle:backoff"
+    );
+    const circuitMetric = telemetry.mcpReload.byReason.find(
+      (entry) => entry.reason === "manual:test-throttle:circuit-open"
+    );
+    assert.ok(backoffMetric);
+    assert.ok(circuitMetric);
+  } finally {
+    if (app.isRunning()) {
+      await app.stop();
+    } else {
+      await app.mcpManager.shutdown();
+      await app.isolatedRuntime.shutdown();
+      app.storage.close();
+    }
+    fs.rmSync(fixture.rootDir, { recursive: true, force: true });
+  }
+});

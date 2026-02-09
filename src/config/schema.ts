@@ -20,6 +20,14 @@ export const ConfigSchema = z.object({
   maxToolOutputChars: z.number().default(50_000),
   skillsDir: z.string().default("workspace/skills"),
   mcpConfigPath: z.string().default(".mcp.json"),
+  mcpSync: z
+    .object({
+      failureBackoffBaseMs: z.number().int().min(100).max(300_000).default(1_000),
+      failureBackoffMaxMs: z.number().int().min(100).max(3_600_000).default(60_000),
+      openCircuitAfterFailures: z.number().int().min(1).max(100).default(5),
+      circuitResetMs: z.number().int().min(1_000).max(3_600_000).default(30_000)
+    })
+    .prefault({}),
   scheduler: z
     .object({
       tickMs: z.number().default(60_000)

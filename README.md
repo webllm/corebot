@@ -29,7 +29,7 @@ Single-process by default, tool- and skill-driven, MCP-ready, and safe-by-defaul
 
 - CLI: `corebot` (or `pnpm run dev` / `pnpm run start`)
 - SDK: import from `@corebot/core` and manage lifecycle via `createCorebotApp()`
-- CLI flags: `corebot --help`, `corebot --version`
+- CLI flags: `corebot --help`, `corebot --version`, `corebot preflight`
 
 ```ts
 import { createCorebotApp, loadConfig } from "@corebot/core";
@@ -92,6 +92,10 @@ COREBOT_WEBHOOK_ENABLED=true COREBOT_WEBHOOK_AUTH_TOKEN=YOUR_TOKEN pnpm run dev
 # Manual database backup / restore
 pnpm run ops:db:backup -- --db data/bot.sqlite
 pnpm run ops:db:restore -- --db data/bot.sqlite --from data/backups/manual-xxxx.sqlite --force
+
+# Validate startup config and MCP file before deployment
+corebot preflight
+corebot preflight --mcp-config ./path/to/.mcp.json
 ```
 
 CLI queue ops:
@@ -129,6 +133,12 @@ You can configure via `config.json` or environment variables.
   "maxToolOutputChars": 50000,
   "skillsDir": "workspace/skills",
   "mcpConfigPath": ".mcp.json",
+  "mcpSync": {
+    "failureBackoffBaseMs": 1000,
+    "failureBackoffMaxMs": 60000,
+    "openCircuitAfterFailures": 5,
+    "circuitResetMs": 30000
+  },
   "scheduler": { "tickMs": 60000 },
   "bus": {
     "pollMs": 1000,
@@ -207,6 +217,10 @@ You can configure via `config.json` or environment variables.
 - `COREBOT_MAX_TOOL_OUTPUT`
 - `COREBOT_SKILLS_DIR`
 - `COREBOT_MCP_CONFIG`
+- `COREBOT_MCP_SYNC_BACKOFF_BASE_MS`
+- `COREBOT_MCP_SYNC_BACKOFF_MAX_MS`
+- `COREBOT_MCP_SYNC_OPEN_CIRCUIT_AFTER_FAILURES`
+- `COREBOT_MCP_SYNC_CIRCUIT_RESET_MS`
 - `COREBOT_ISOLATION_ENABLED`
 - `COREBOT_ISOLATION_TOOLS`
 - `COREBOT_ISOLATION_WORKER_TIMEOUT_MS`
@@ -268,6 +282,7 @@ Notes:
 - `COREBOT_ISOLATION_OPEN_CIRCUIT_AFTER_FAILURES` and `COREBOT_ISOLATION_CIRCUIT_RESET_MS` control per-tool circuit breaker for repeated worker failures.
 - Default policy denies non-admin `fs.write` to protected paths (`skills/`, `IDENTITY.md`, `TOOLS.md`, `USER.md`, `.mcp.json`).
 - `COREBOT_MCP_ALLOWED_SERVERS` and `COREBOT_MCP_ALLOWED_TOOLS` act as allowlists when set; empty lists allow all discovered MCP servers/tools.
+- `COREBOT_MCP_SYNC_*` controls MCP auto-sync retry backoff and temporary circuit-open window after repeated failures.
 - `COREBOT_WEBHOOK_AUTH_TOKEN` can be sent via `Authorization: Bearer <token>` or `x-corebot-token`.
 - `COREBOT_ADMIN_BOOTSTRAP_SINGLE_USE=true` invalidates bootstrap elevation after first successful use.
 - `COREBOT_ADMIN_BOOTSTRAP_MAX_ATTEMPTS` and `COREBOT_ADMIN_BOOTSTRAP_LOCKOUT_MINUTES` control invalid-key lockout policy.
@@ -420,7 +435,7 @@ Memory files: `workspace/memory/MEMORY.md` (global), `workspace/memory/{channel}
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `mcp.reload` | `reason?: string` | Force reload MCP config and re-register tools. Admin only. |
+| `mcp.reload` | `reason?: string`, `force?: boolean` (default `true`) | Reload MCP config and re-register tools. Set `force=false` to respect no-change checks and failure backoff. Admin only. |
 | `bus.dead_letter.list` | `direction?: "inbound"\|"outbound"`, `limit?: number` (default 20) | List dead-letter queue entries. Admin only. |
 | `bus.dead_letter.replay` | `queueId?: string`, `direction?: "inbound"\|"outbound"`, `limit?: number` (default 10) | Replay dead-letter entries back to pending. Admin only. |
 
@@ -535,6 +550,8 @@ MCP tools are injected as: `mcp__<server>__<tool>`.
 `.mcp.json` is checked and auto-synced during message handling; changes are applied without restart.  
 You can also force refresh manually with `mcp.reload`.
 If `.mcp.json` is invalid (for example malformed JSON), reload is rejected and the previous MCP tool set remains active.
+Each enabled server must define exactly one of `command` or `url`; `args/env` are only valid with `command`.
+Use `corebot preflight` to validate config and `.mcp.json` before rolling out changes.
 Reload attempts are tracked in telemetry (`corebot_mcp_reload_*`) and persisted in `audit_events` with reason/duration metadata.
 
 ## Scheduler

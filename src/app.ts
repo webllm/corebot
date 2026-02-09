@@ -203,6 +203,10 @@ export const createCorebotApp = async (
   const mcpConfigPath = path.resolve(config.mcpConfigPath);
   let mcpConfigSignature: string | null = null;
   let mcpSyncInFlight: Promise<McpReloadResult> | null = null;
+  let mcpFailureStreak = 0;
+  let mcpLastFailedSignature: string | null = null;
+  let mcpNextRetryAtMs = 0;
+  let mcpCircuitOpenUntilMs = 0;
 
   const readMcpConfigSignature = () => {
     try {
@@ -271,12 +275,69 @@ export const createCorebotApp = async (
     const startedAtMs = Date.now();
     const force = Boolean(request.force);
     const currentSignature = readMcpConfigSignature();
+    const nowMs = Date.now();
+    const sameFailedSignature =
+      mcpLastFailedSignature !== null && currentSignature === mcpLastFailedSignature;
+
+    if (!force && sameFailedSignature && nowMs < mcpCircuitOpenUntilMs) {
+      const retryAt = new Date(mcpCircuitOpenUntilMs).toISOString();
+      const result: McpReloadResult = {
+        reloaded: false,
+        reason: request.reason,
+        toolCount: countRegisteredMcpTools(),
+        configSignature: currentSignature,
+        skipCause: "circuit_open",
+        retryAt
+      };
+      telemetry.recordMcpReload({
+        reason: `${request.reason}:circuit-open`,
+        durationMs: Date.now() - startedAtMs,
+        outcome: "skipped"
+      });
+      logger.warn(
+        {
+          reason: request.reason,
+          configSignature: currentSignature,
+          retryAt
+        },
+        "MCP sync skipped due to open circuit"
+      );
+      return result;
+    }
+
+    if (!force && sameFailedSignature && nowMs < mcpNextRetryAtMs) {
+      const retryAt = new Date(mcpNextRetryAtMs).toISOString();
+      const result: McpReloadResult = {
+        reloaded: false,
+        reason: request.reason,
+        toolCount: countRegisteredMcpTools(),
+        configSignature: currentSignature,
+        skipCause: "backoff",
+        retryAt
+      };
+      telemetry.recordMcpReload({
+        reason: `${request.reason}:backoff`,
+        durationMs: Date.now() - startedAtMs,
+        outcome: "skipped"
+      });
+      logger.info(
+        {
+          reason: request.reason,
+          configSignature: currentSignature,
+          retryAt
+        },
+        "MCP sync skipped due to failure backoff"
+      );
+      return result;
+    }
+
     if (!force && mcpConfigSignature !== null && currentSignature === mcpConfigSignature) {
       const result: McpReloadResult = {
         reloaded: false,
         reason: request.reason,
         toolCount: countRegisteredMcpTools(),
-        configSignature: currentSignature
+        configSignature: currentSignature,
+        skipCause: "unchanged"
       };
       telemetry.recordMcpReload({
         reason: request.reason,
@@ -300,6 +361,10 @@ export const createCorebotApp = async (
 
         const updatedSignature = readMcpConfigSignature();
         mcpConfigSignature = updatedSignature;
+        mcpFailureStreak = 0;
+        mcpLastFailedSignature = null;
+        mcpNextRetryAtMs = 0;
+        mcpCircuitOpenUntilMs = 0;
         const durationMs = Date.now() - startedAtMs;
         const result: McpReloadResult = {
           reloaded: true,
@@ -332,6 +397,20 @@ export const createCorebotApp = async (
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const durationMs = Date.now() - startedAtMs;
+        mcpFailureStreak += 1;
+        mcpLastFailedSignature = currentSignature;
+
+        const backoffExp = Math.max(0, Math.min(20, mcpFailureStreak - 1));
+        const backoffMs = Math.min(
+          config.mcpSync.failureBackoffMaxMs,
+          config.mcpSync.failureBackoffBaseMs * 2 ** backoffExp
+        );
+        mcpNextRetryAtMs = Date.now() + backoffMs;
+
+        if (mcpFailureStreak >= config.mcpSync.openCircuitAfterFailures) {
+          mcpCircuitOpenUntilMs = Date.now() + config.mcpSync.circuitResetMs;
+        }
+
         telemetry.recordMcpReload({
           reason: request.reason,
           durationMs,
@@ -347,7 +426,13 @@ export const createCorebotApp = async (
           {
             error: message,
             reason: request.reason,
-            durationMs
+            durationMs,
+            failureStreak: mcpFailureStreak,
+            nextRetryAt: new Date(mcpNextRetryAtMs).toISOString(),
+            circuitOpenUntil:
+              mcpCircuitOpenUntilMs > Date.now()
+                ? new Date(mcpCircuitOpenUntilMs).toISOString()
+                : null
           },
           "failed to sync MCP tools"
         );

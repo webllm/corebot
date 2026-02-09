@@ -46,6 +46,12 @@ export const createConfig = (
     maxToolOutputChars: 50_000,
     skillsDir: path.join(workspaceDir, "skills"),
     mcpConfigPath: path.join(workspaceDir, ".mcp.json"),
+    mcpSync: {
+      failureBackoffBaseMs: 1_000,
+      failureBackoffMaxMs: 60_000,
+      openCircuitAfterFailures: 5,
+      circuitResetMs: 30_000
+    },
     scheduler: { tickMs: 60_000 },
     bus: {
       pollMs: 50,

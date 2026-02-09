@@ -3,11 +3,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { main } from "./main.js";
+import { runPreflightChecks } from "./preflight.js";
 
 const HELP_TEXT = `corebot - lightweight AI bot runtime
 
 Usage:
   corebot [options]
+  corebot preflight [--mcp-config <path>]
 
 Options:
   -h, --help      Show help
@@ -41,6 +43,16 @@ const readVersion = () => {
 };
 
 export const runCli = async (args: string[] = process.argv.slice(2)) => {
+  if (args[0] === "preflight") {
+    const report = runPreflightChecks(parsePreflightArgs(args.slice(1)));
+    process.stdout.write("preflight: ok\n");
+    process.stdout.write(`mcp.config.path: ${report.resolvedMcpConfigPath}\n`);
+    process.stdout.write(
+      `mcp.config.status: ${report.mcpConfigPresent ? "valid" : "missing (treated as empty)"}\n`
+    );
+    process.stdout.write(`mcp.config.servers: ${report.mcpServerCount}\n`);
+    return;
+  }
   if (args.includes("--help") || args.includes("-h")) {
     process.stdout.write(`${HELP_TEXT}\n`);
     return;
@@ -52,10 +64,28 @@ export const runCli = async (args: string[] = process.argv.slice(2)) => {
   await main();
 };
 
+const parsePreflightArgs = (args: string[]) => {
+  const options: { mcpConfigPath?: string } = {};
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === "--mcp-config") {
+      const value = args[i + 1];
+      if (!value) {
+        throw new Error("Missing value for --mcp-config.");
+      }
+      options.mcpConfigPath = value;
+      i += 1;
+      continue;
+    }
+    throw new Error(`Unknown preflight option: ${arg}`);
+  }
+  return options;
+};
+
 if (isDirectExecution()) {
   void runCli().catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`corebot startup failed: ${message}\n`);
+    process.stderr.write(`corebot command failed: ${message}\n`);
     process.exit(1);
   });
 }
