@@ -40,17 +40,30 @@ export type ToolContext = {
   chat: { channel: string; chatId: string; role: "admin" | "normal"; id: string };
   storage: SqliteStorage;
   mcp: McpManager;
-  mcpReloader?: (params?: { force?: boolean; reason?: string }) => Promise<{
-    reloaded: boolean;
-    reason: string;
-    toolCount: number;
-    configSignature: string;
-  }>;
+  mcpReloader?: (params?: McpReloadRequest) => Promise<McpReloadResult>;
   logger: Logger;
   bus: MessageBus;
   config: Config;
   skills: SkillIndexEntry[];
   isolatedRuntime?: IsolatedToolRuntime;
+};
+
+export type McpReloadRequest = {
+  force?: boolean;
+  reason?: string;
+  audit?: {
+    chatFk?: string;
+    channel?: string;
+    chatId?: string;
+    actorRole?: string;
+  };
+};
+
+export type McpReloadResult = {
+  reloaded: boolean;
+  reason: string;
+  toolCount: number;
+  configSignature: string;
 };
 
 export interface ToolSpec<TArgs extends z.ZodType = z.ZodType> {
@@ -98,6 +111,40 @@ export class ToolRegistry {
       }
     }
     this.toolDefs = this.toolDefs.filter((def) => !def.name.startsWith(prefix));
+  }
+
+  replaceRawByPrefix(
+    prefix: string,
+    defs: ToolDefinition[],
+    handler: (def: ToolDefinition) => (args: unknown, ctx: ToolContext) => Promise<string>
+  ) {
+    const nextTools = new Map(this.tools);
+    for (const name of [...nextTools.keys()]) {
+      if (name.startsWith(prefix)) {
+        nextTools.delete(name);
+      }
+    }
+
+    const nextDefMap = new Map<string, ToolDefinition>();
+    for (const def of this.toolDefs) {
+      if (!def.name.startsWith(prefix)) {
+        nextDefMap.set(def.name, def);
+      }
+    }
+
+    for (const def of defs) {
+      const spec: ToolSpec<any> = {
+        name: def.name,
+        description: def.description,
+        schema: z.any(),
+        run: async (args, ctx) => handler(def)(args, ctx)
+      };
+      nextTools.set(def.name, spec);
+      nextDefMap.set(def.name, def);
+    }
+
+    this.tools = nextTools;
+    this.toolDefs = [...nextDefMap.values()];
   }
 
   listDefinitions(): ToolDefinition[] {

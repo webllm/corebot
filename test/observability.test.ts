@@ -40,6 +40,21 @@ test("RuntimeTelemetry aggregates tool and scheduler metrics", () => {
   telemetry.recordToolExecution("fs.read", 40, false);
   telemetry.recordToolExecution("web.fetch", 100, true);
   telemetry.recordSchedulerDispatch([50, 100, 25]);
+  telemetry.recordMcpReload({
+    reason: "startup",
+    durationMs: 12,
+    outcome: "reloaded"
+  });
+  telemetry.recordMcpReload({
+    reason: "inbound:auto-sync",
+    durationMs: 4,
+    outcome: "skipped"
+  });
+  telemetry.recordMcpReload({
+    reason: "manual:tool",
+    durationMs: 9,
+    outcome: "failed"
+  });
 
   const snapshot = telemetry.snapshot();
   assert.equal(snapshot.tools.totals.calls, 3);
@@ -47,6 +62,11 @@ test("RuntimeTelemetry aggregates tool and scheduler metrics", () => {
   assert.equal(snapshot.tools.totals.failureRate, 1 / 3);
   assert.equal(snapshot.scheduler.tasks, 3);
   assert.equal(snapshot.scheduler.maxDelayMs, 100);
+  assert.equal(snapshot.mcpReload.totals.calls, 3);
+  assert.equal(snapshot.mcpReload.totals.reloaded, 1);
+  assert.equal(snapshot.mcpReload.totals.failures, 1);
+  assert.equal(snapshot.mcpReload.totals.skipped, 1);
+  assert.equal(snapshot.mcpReload.byReason.length, 3);
 });
 
 test("Scheduler reports task delay telemetry", async () => {
@@ -205,6 +225,42 @@ test("ObservabilityServer exposes health and metrics endpoints", async () => {
         tasks: 2,
         avgDelayMs: 25,
         maxDelayMs: 40
+      },
+      mcpReload: {
+        totals: {
+          calls: 4,
+          reloaded: 2,
+          failures: 1,
+          skipped: 1,
+          successRate: 0.5,
+          failureRate: 0.25,
+          avgDurationMs: 14,
+          maxDurationMs: 20
+        },
+        byReason: [
+          {
+            reason: "startup",
+            calls: 1,
+            reloaded: 1,
+            failures: 0,
+            skipped: 0,
+            successRate: 1,
+            failureRate: 0,
+            avgDurationMs: 20,
+            maxDurationMs: 20
+          },
+          {
+            reason: "inbound:auto-sync",
+            calls: 3,
+            reloaded: 1,
+            failures: 1,
+            skipped: 1,
+            successRate: 1 / 3,
+            failureRate: 1 / 3,
+            avgDurationMs: 12,
+            maxDurationMs: 16
+          }
+        ]
       }
     }),
     getMcp: () => ({
@@ -236,6 +292,8 @@ test("ObservabilityServer exposes health and metrics endpoints", async () => {
     assert.match(text, /corebot_health_ready 1/);
     assert.match(text, /corebot_queue_pending\{direction="inbound"\} 1/);
     assert.match(text, /corebot_mcp_calls_total\{server="remote"\} 5/);
+    assert.match(text, /corebot_mcp_reload_calls_total 4/);
+    assert.match(text, /corebot_mcp_reload_reason_calls_total\{reason="startup"\} 1/);
 
     const status = await fetch(`${base}/status`);
     assert.equal(status.status, 200);

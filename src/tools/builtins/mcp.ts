@@ -21,7 +21,13 @@ export const mcpTools = (options: McpToolsOptions = {}): ToolSpec<any>[] => {
     async run(args, ctx) {
       const result = await mcpReloader({
         force: true,
-        reason: args.reason ?? `manual:${ctx.chat.channel}:${ctx.chat.chatId}`
+        reason: args.reason ?? "manual:tool",
+        audit: {
+          chatFk: ctx.chat.id,
+          channel: ctx.chat.channel,
+          chatId: ctx.chat.chatId,
+          actorRole: ctx.chat.role
+        }
       });
       return JSON.stringify(result, null, 2);
     }

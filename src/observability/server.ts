@@ -33,6 +33,29 @@ type TelemetrySnapshot = {
     avgDelayMs: number;
     maxDelayMs: number;
   };
+  mcpReload: {
+    totals: {
+      calls: number;
+      reloaded: number;
+      failures: number;
+      skipped: number;
+      successRate: number;
+      failureRate: number;
+      avgDurationMs: number;
+      maxDurationMs: number;
+    };
+    byReason: Array<{
+      reason: string;
+      calls: number;
+      reloaded: number;
+      failures: number;
+      skipped: number;
+      successRate: number;
+      failureRate: number;
+      avgDurationMs: number;
+      maxDurationMs: number;
+    }>;
+  };
 };
 
 export class ObservabilityServer {

@@ -134,6 +134,63 @@ test("McpManager reloadFromConfig replaces previously loaded tools", async () =>
   }
 });
 
+test("McpManager keeps last-known-good tools when config parse fails", async () => {
+  const manager = new McpManager({
+    factory: {
+      async createClient(server) {
+        return {
+          client: {
+            async listTools() {
+              return [
+                { name: "echo", description: `${server.name}-echo`, inputSchema: { type: "object" } }
+              ];
+            },
+            async callTool() {
+              return { server: server.name };
+            },
+            async connect() {
+              return;
+            },
+            async close() {
+              return;
+            }
+          }
+        };
+      }
+    },
+    logger: {
+      info: () => undefined,
+      warn: () => undefined
+    } as any
+  });
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "corebot-mcp-rollback-"));
+  try {
+    const configPath = path.join(root, "mcp.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        servers: {
+          alpha: { command: "noop" }
+        }
+      }),
+      "utf-8"
+    );
+
+    await manager.reloadFromConfig(configPath);
+    assert.deepEqual(await manager.callTool("mcp__alpha__echo", {}), { server: "alpha" });
+
+    fs.writeFileSync(configPath, "{ invalid json", "utf-8");
+    await assert.rejects(manager.reloadFromConfig(configPath), /Invalid MCP config JSON/);
+
+    // parse failure must not clear previously active tools
+    assert.deepEqual(await manager.callTool("mcp__alpha__echo", {}), { server: "alpha" });
+  } finally {
+    await manager.shutdown();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Policy engine enforces MCP allowlists for admin calls", async () => {
   const fixture = createStorageFixture({
     allowedMcpServers: ["good"],

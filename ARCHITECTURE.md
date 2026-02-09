@@ -166,6 +166,8 @@ Unifies three tool sources:
 - Calls `tools/call` when tool is invoked
 - Applies server/tool allowlists before registration.
 - Re-syncs config dynamically during inbound processing (no restart required).
+- Reload applies atomically; invalid config keeps last-known-good MCP tool bindings.
+- Reload outcomes are observable via telemetry metrics and `audit_events`.
 
 ### 8.2 MCP Server (Future)
 > Not yet implemented. A future extension may expose Corebot's own capabilities

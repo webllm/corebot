@@ -33,6 +33,13 @@ type McpClientFactory = {
   createClient: (server: McpServerConfig) => Promise<{ client: McpClientInstance; transport?: McpTransport }>;
 };
 
+type McpStateSnapshot = {
+  clients: Map<string, McpClientInstance>;
+  tools: Map<string, McpToolInfo>;
+  serverHealth: Map<string, McpServerHealth>;
+  toolDefs: ToolDefinition[];
+};
+
 const defaultClientFactory: McpClientFactory = {
   async createClient(server) {
     const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
@@ -88,97 +95,19 @@ export class McpManager {
   }
 
   async loadFromConfig(configPath: string): Promise<ToolDefinition[]> {
-    if (!fs.existsSync(configPath)) {
-      return [];
-    }
-    const raw = fs.readFileSync(configPath, "utf-8");
-    let parsed: McpConfigFile | null = null;
-    try {
-      parsed = JSON.parse(raw) as McpConfigFile;
-    } catch {
-      parsed = null;
-    }
-    if (!parsed?.servers) {
-      return [];
-    }
-
-    const toolDefs: ToolDefinition[] = [];
-
-    for (const [name, config] of Object.entries(parsed.servers)) {
-      try {
-        const serverConfig: McpServerConfig = { name, ...config };
-        if (serverConfig.disabled) {
-          continue;
-        }
-        if (!isMcpServerAllowed(this.allowedServers, name)) {
-          this.logger?.info({ server: name }, "MCP server skipped by allowlist");
-          continue;
-        }
-
-        const { client } = await this.factory.createClient(serverConfig);
-        this.clients.set(name, client);
-        const listResult = await client.listTools();
-        const tools = Array.isArray(listResult)
-          ? listResult
-          : (listResult as { tools?: unknown[] })?.tools ?? [];
-        this.setServerHealth(name, {
-          status: "healthy",
-          tools: tools.length,
-          lastError: undefined
-        });
-
-        for (const tool of tools as Array<{
-          name: string;
-          description?: string;
-          inputSchema?: Record<string, unknown>;
-        }>) {
-          const fullName = `mcp__${name}__${tool.name}`;
-          if (
-            !isMcpToolAllowed(this.allowedTools, {
-              fullName,
-              server: name,
-              tool: tool.name
-            })
-          ) {
-            this.logger?.info({ tool: fullName }, "MCP tool skipped by allowlist");
-            continue;
-          }
-          const info: McpToolInfo = {
-            server: name,
-            name: tool.name,
-            description: tool.description ?? "MCP tool",
-            inputSchema: tool.inputSchema ?? { type: "object", properties: {} }
-          };
-          this.tools.set(fullName, info);
-          toolDefs.push({
-            name: fullName,
-            description: info.description,
-            parameters: info.inputSchema
-          });
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.setServerHealth(name, {
-          status: "down",
-          tools: 0,
-          lastError: message
-        });
-        if (this.logger) {
-          this.logger.warn({ server: name, error: message }, "failed to load MCP server");
-        } else {
-          console.warn(`[MCP] failed to load server '${name}':`, error);
-        }
-      }
-    }
-
-    return toolDefs;
+    return this.reloadFromConfig(configPath);
   }
 
   async reloadFromConfig(configPath: string): Promise<ToolDefinition[]> {
-    await this.closeClients();
-    this.tools.clear();
-    this.serverHealth.clear();
-    return this.loadFromConfig(configPath);
+    const next = await this.buildStateFromConfig(configPath);
+    const previousClients = this.clients;
+
+    this.clients = next.clients;
+    this.tools = next.tools;
+    this.serverHealth = next.serverHealth;
+
+    await this.closeClientMap(previousClients);
+    return next.toolDefs;
   }
 
   async callTool(fullName: string, args: unknown): Promise<unknown> {
@@ -213,10 +142,11 @@ export class McpManager {
   }
 
   async shutdown() {
-    await this.closeClients();
-    this.clients.clear();
+    const previousClients = this.clients;
+    this.clients = new Map();
     this.tools.clear();
     this.serverHealth.clear();
+    await this.closeClientMap(previousClients);
   }
 
   getHealthSnapshot(): Record<string, McpServerHealth> {
@@ -259,12 +189,141 @@ export class McpManager {
     });
   }
 
-  private async closeClients() {
-    for (const client of this.clients.values()) {
-      if (client.close) {
+  private async buildStateFromConfig(configPath: string): Promise<McpStateSnapshot> {
+    if (!fs.existsSync(configPath)) {
+      return {
+        clients: new Map(),
+        tools: new Map(),
+        serverHealth: new Map(),
+        toolDefs: []
+      };
+    }
+
+    const raw = fs.readFileSync(configPath, "utf-8");
+    let parsed: McpConfigFile;
+    try {
+      parsed = JSON.parse(raw) as McpConfigFile;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`Invalid MCP config JSON: ${detail}`);
+    }
+
+    if (!parsed || typeof parsed !== "object" || !parsed.servers || typeof parsed.servers !== "object") {
+      throw new Error("Invalid MCP config: missing 'servers' object.");
+    }
+
+    const clients = new Map<string, McpClientInstance>();
+    const tools = new Map<string, McpToolInfo>();
+    const serverHealth = new Map<string, McpServerHealth>();
+    const toolDefs: ToolDefinition[] = [];
+
+    try {
+      for (const [name, config] of Object.entries(parsed.servers)) {
+        let client: McpClientInstance | null = null;
+        try {
+          const serverConfig: McpServerConfig = { name, ...config };
+          if (serverConfig.disabled) {
+            continue;
+          }
+          if (!isMcpServerAllowed(this.allowedServers, name)) {
+            this.logger?.info({ server: name }, "MCP server skipped by allowlist");
+            continue;
+          }
+
+          const created = await this.factory.createClient(serverConfig);
+          client = created.client;
+          const listResult = await client.listTools();
+          const remoteTools = Array.isArray(listResult)
+            ? listResult
+            : (listResult as { tools?: unknown[] })?.tools ?? [];
+          clients.set(name, client);
+          serverHealth.set(name, {
+            status: "healthy",
+            tools: remoteTools.length,
+            calls: 0,
+            failures: 0,
+            lastCheckedAt: new Date().toISOString()
+          });
+
+          for (const tool of remoteTools as Array<{
+            name: string;
+            description?: string;
+            inputSchema?: Record<string, unknown>;
+          }>) {
+            const fullName = `mcp__${name}__${tool.name}`;
+            if (
+              !isMcpToolAllowed(this.allowedTools, {
+                fullName,
+                server: name,
+                tool: tool.name
+              })
+            ) {
+              this.logger?.info({ tool: fullName }, "MCP tool skipped by allowlist");
+              continue;
+            }
+            const info: McpToolInfo = {
+              server: name,
+              name: tool.name,
+              description: tool.description ?? "MCP tool",
+              inputSchema: tool.inputSchema ?? { type: "object", properties: {} }
+            };
+            tools.set(fullName, info);
+            toolDefs.push({
+              name: fullName,
+              description: info.description,
+              parameters: info.inputSchema
+            });
+          }
+        } catch (error) {
+          if (client?.close) {
+            try {
+              await client.close();
+            } catch (closeError) {
+              const closeMessage =
+                closeError instanceof Error ? closeError.message : String(closeError);
+              this.logger?.warn(
+                { server: name, error: closeMessage },
+                "failed to close MCP client after load error"
+              );
+            }
+          }
+          const message = error instanceof Error ? error.message : String(error);
+          serverHealth.set(name, {
+            status: "down",
+            tools: 0,
+            calls: 0,
+            failures: 0,
+            lastCheckedAt: new Date().toISOString(),
+            lastError: message
+          });
+          this.logger?.warn({ server: name, error: message }, "failed to load MCP server");
+        }
+      }
+    } catch (error) {
+      await this.closeClientMap(clients);
+      throw error;
+    }
+
+    return {
+      clients,
+      tools,
+      serverHealth,
+      toolDefs
+    };
+  }
+
+  private async closeClientMap(clients: Map<string, McpClientInstance>) {
+    for (const [name, client] of clients.entries()) {
+      if (!client.close) {
+        continue;
+      }
+      try {
         await client.close();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger?.warn({ server: name, error: message }, "failed to close MCP client");
       }
     }
-    this.clients.clear();
+    clients.clear();
   }
 }

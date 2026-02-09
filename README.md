@@ -534,6 +534,8 @@ MCP tools are injected as: `mcp__<server>__<tool>`.
 
 `.mcp.json` is checked and auto-synced during message handling; changes are applied without restart.  
 You can also force refresh manually with `mcp.reload`.
+If `.mcp.json` is invalid (for example malformed JSON), reload is rejected and the previous MCP tool set remains active.
+Reload attempts are tracked in telemetry (`corebot_mcp_reload_*`) and persisted in `audit_events` with reason/duration metadata.
 
 ## Scheduler
 

@@ -22,7 +22,11 @@ import { WebhookChannel } from "./channels/webhook.js";
 import type { Channel } from "./channels/base.js";
 import { Scheduler } from "./scheduler/scheduler.js";
 import { IsolatedToolRuntime } from "./isolation/runtime.js";
-import type { ToolContext } from "./tools/registry.js";
+import type {
+  ToolContext,
+  McpReloadRequest,
+  McpReloadResult
+} from "./tools/registry.js";
 
 const ensureDir = (dir: string) => {
   fs.mkdirSync(dir, { recursive: true });
@@ -198,12 +202,7 @@ export const createCorebotApp = async (
   const toolRegistry = new ToolRegistry(new DefaultToolPolicyEngine(), telemetry);
   const mcpConfigPath = path.resolve(config.mcpConfigPath);
   let mcpConfigSignature: string | null = null;
-  let mcpSyncInFlight: Promise<{
-    reloaded: boolean;
-    reason: string;
-    toolCount: number;
-    configSignature: string;
-  }> | null = null;
+  let mcpSyncInFlight: Promise<McpReloadResult> | null = null;
 
   const readMcpConfigSignature = () => {
     try {
@@ -220,61 +219,141 @@ export const createCorebotApp = async (
   const countRegisteredMcpTools = () =>
     toolRegistry.listDefinitions().filter((def) => def.name.startsWith("mcp__")).length;
 
-  const syncMcpTools = async (params: {
-    force?: boolean;
-    reason: string;
-  }): Promise<{
-    reloaded: boolean;
-    reason: string;
-    toolCount: number;
-    configSignature: string;
-  }> => {
+  const writeMcpReloadAudit = (params: {
+    request: McpReloadRequest & { reason: string };
+    outcome: "reloaded" | "failed";
+    durationMs: number;
+    result?: McpReloadResult;
+    error?: string;
+  }) => {
+    try {
+      const metadata: Record<string, unknown> = {
+        reason: params.request.reason,
+        force: Boolean(params.request.force),
+        durationMs: params.durationMs,
+        configSignature:
+          params.result?.configSignature ??
+          mcpConfigSignature ??
+          readMcpConfigSignature(),
+        toolCount: params.result?.toolCount ?? countRegisteredMcpTools()
+      };
+      if (params.error) {
+        metadata.error = params.error;
+      }
+      storage.insertAuditEvent({
+        at: new Date().toISOString(),
+        eventType: "mcp.reload",
+        toolName: "mcp.reload",
+        chatFk: params.request.audit?.chatFk,
+        channel: params.request.audit?.channel,
+        chatId: params.request.audit?.chatId,
+        actorRole: params.request.audit?.actorRole ?? "system",
+        outcome: params.outcome,
+        reason: params.error ?? params.request.reason,
+        argsJson: JSON.stringify({
+          force: Boolean(params.request.force),
+          reason: params.request.reason
+        }),
+        metadataJson: JSON.stringify(metadata)
+      });
+    } catch {
+      // MCP reload audit is best-effort and should never break runtime flow.
+    }
+  };
+
+  const syncMcpTools = async (
+    request: McpReloadRequest & { reason: string }
+  ): Promise<McpReloadResult> => {
     if (mcpSyncInFlight) {
       return mcpSyncInFlight;
     }
 
-    const force = Boolean(params.force);
+    const startedAtMs = Date.now();
+    const force = Boolean(request.force);
     const currentSignature = readMcpConfigSignature();
     if (!force && mcpConfigSignature !== null && currentSignature === mcpConfigSignature) {
-      return {
+      const result: McpReloadResult = {
         reloaded: false,
-        reason: params.reason,
+        reason: request.reason,
         toolCount: countRegisteredMcpTools(),
         configSignature: currentSignature
       };
+      telemetry.recordMcpReload({
+        reason: request.reason,
+        durationMs: Date.now() - startedAtMs,
+        outcome: "skipped"
+      });
+      return result;
     }
 
     mcpSyncInFlight = (async () => {
-      const defs = await mcpManager.reloadFromConfig(mcpConfigPath);
-      toolRegistry.removeByPrefix("mcp__");
-      for (const def of defs) {
-        toolRegistry.registerRaw(def, async (args: unknown, ctx: ToolContext) => {
-          const result = await ctx.mcp.callTool(def.name, args);
-          return formatMcpResult(result);
-        });
-      }
-      const updatedSignature = readMcpConfigSignature();
-      mcpConfigSignature = updatedSignature;
-      logger.info(
-        {
-          reason: params.reason,
+      try {
+        const defs = await mcpManager.reloadFromConfig(mcpConfigPath);
+        toolRegistry.replaceRawByPrefix(
+          "mcp__",
+          defs,
+          (def) => async (args: unknown, ctx: ToolContext) => {
+            const result = await ctx.mcp.callTool(def.name, args);
+            return formatMcpResult(result);
+          }
+        );
+
+        const updatedSignature = readMcpConfigSignature();
+        mcpConfigSignature = updatedSignature;
+        const durationMs = Date.now() - startedAtMs;
+        const result: McpReloadResult = {
+          reloaded: true,
+          reason: request.reason,
           toolCount: defs.length,
           configSignature: updatedSignature
-        },
-        "MCP tools synchronized"
-      );
-      return {
-        reloaded: true,
-        reason: params.reason,
-        toolCount: defs.length,
-        configSignature: updatedSignature
-      };
-    })()
-      .catch((error) => {
-        logger.warn({ error, reason: params.reason }, "failed to sync MCP tools");
+        };
+
+        telemetry.recordMcpReload({
+          reason: request.reason,
+          durationMs,
+          outcome: "reloaded"
+        });
+        writeMcpReloadAudit({
+          request,
+          outcome: "reloaded",
+          durationMs,
+          result
+        });
+        logger.info(
+          {
+            reason: request.reason,
+            toolCount: defs.length,
+            configSignature: updatedSignature,
+            durationMs
+          },
+          "MCP tools synchronized"
+        );
+        return result;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const durationMs = Date.now() - startedAtMs;
+        telemetry.recordMcpReload({
+          reason: request.reason,
+          durationMs,
+          outcome: "failed"
+        });
+        writeMcpReloadAudit({
+          request,
+          outcome: "failed",
+          durationMs,
+          error: message
+        });
+        logger.warn(
+          {
+            error: message,
+            reason: request.reason,
+            durationMs
+          },
+          "failed to sync MCP tools"
+        );
         throw error;
-      })
-      .finally(() => {
+      }
+    })().finally(() => {
         mcpSyncInFlight = null;
       });
 
@@ -284,7 +363,8 @@ export const createCorebotApp = async (
   const mcpReloader: ToolContext["mcpReloader"] = (params = {}) =>
     syncMcpTools({
       force: params.force,
-      reason: params.reason ?? "manual:unspecified"
+      reason: params.reason ?? "manual:unspecified",
+      audit: params.audit
     });
 
   for (const tool of builtInTools({ mcpReloader })) {

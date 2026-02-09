@@ -29,6 +29,29 @@ type TelemetrySnapshot = {
     avgDelayMs: number;
     maxDelayMs: number;
   };
+  mcpReload: {
+    totals: {
+      calls: number;
+      reloaded: number;
+      failures: number;
+      skipped: number;
+      successRate: number;
+      failureRate: number;
+      avgDurationMs: number;
+      maxDurationMs: number;
+    };
+    byReason: Array<{
+      reason: string;
+      calls: number;
+      reloaded: number;
+      failures: number;
+      skipped: number;
+      successRate: number;
+      failureRate: number;
+      avgDurationMs: number;
+      maxDurationMs: number;
+    }>;
+  };
 };
 
 const line = (name: string, value: number, labels?: Record<string, string>) => {
@@ -85,6 +108,51 @@ export const renderPrometheusMetrics = (params: {
   lines.push(line("corebot_scheduler_tasks_total", params.telemetry.scheduler.tasks));
   lines.push(line("corebot_scheduler_avg_delay_ms", params.telemetry.scheduler.avgDelayMs));
   lines.push(line("corebot_scheduler_max_delay_ms", params.telemetry.scheduler.maxDelayMs));
+
+  lines.push(line("corebot_mcp_reload_calls_total", params.telemetry.mcpReload.totals.calls));
+  lines.push(line("corebot_mcp_reload_reloaded_total", params.telemetry.mcpReload.totals.reloaded));
+  lines.push(line("corebot_mcp_reload_failures_total", params.telemetry.mcpReload.totals.failures));
+  lines.push(line("corebot_mcp_reload_skipped_total", params.telemetry.mcpReload.totals.skipped));
+  lines.push(line("corebot_mcp_reload_success_rate", params.telemetry.mcpReload.totals.successRate));
+  lines.push(line("corebot_mcp_reload_failure_rate", params.telemetry.mcpReload.totals.failureRate));
+  lines.push(
+    line("corebot_mcp_reload_avg_duration_ms", params.telemetry.mcpReload.totals.avgDurationMs)
+  );
+  lines.push(
+    line("corebot_mcp_reload_max_duration_ms", params.telemetry.mcpReload.totals.maxDurationMs)
+  );
+  for (const metric of params.telemetry.mcpReload.byReason) {
+    lines.push(line("corebot_mcp_reload_reason_calls_total", metric.calls, { reason: metric.reason }));
+    lines.push(
+      line("corebot_mcp_reload_reason_reloaded_total", metric.reloaded, { reason: metric.reason })
+    );
+    lines.push(
+      line("corebot_mcp_reload_reason_failures_total", metric.failures, { reason: metric.reason })
+    );
+    lines.push(
+      line("corebot_mcp_reload_reason_skipped_total", metric.skipped, { reason: metric.reason })
+    );
+    lines.push(
+      line("corebot_mcp_reload_reason_success_rate", metric.successRate, {
+        reason: metric.reason
+      })
+    );
+    lines.push(
+      line("corebot_mcp_reload_reason_failure_rate", metric.failureRate, {
+        reason: metric.reason
+      })
+    );
+    lines.push(
+      line("corebot_mcp_reload_reason_avg_duration_ms", metric.avgDurationMs, {
+        reason: metric.reason
+      })
+    );
+    lines.push(
+      line("corebot_mcp_reload_reason_max_duration_ms", metric.maxDurationMs, {
+        reason: metric.reason
+      })
+    );
+  }
 
   for (const [server, health] of Object.entries(params.mcp)) {
     const statusValue = health.status === "healthy" ? 2 : health.status === "degraded" ? 1 : 0;

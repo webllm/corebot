@@ -10,6 +10,7 @@ import { compactConversation } from "../agent/compact.js";
 import { nowIso } from "../util/time.js";
 import type { McpManager } from "../mcp/manager.js";
 import type { IsolatedToolRuntime } from "../isolation/runtime.js";
+import type { McpReloadRequest, McpReloadResult } from "../tools/registry.js";
 
 class SerialQueue {
   private tail = Promise.resolve();
@@ -37,12 +38,7 @@ export class ConversationRouter {
     private config: Config,
     private skills: SkillIndexEntry[] | (() => SkillIndexEntry[]),
     private isolatedRuntime?: IsolatedToolRuntime,
-    private mcpReloader?: (params?: { force?: boolean; reason?: string }) => Promise<{
-      reloaded: boolean;
-      reason: string;
-      toolCount: number;
-      configSignature: string;
-    }>
+    private mcpReloader?: (params?: McpReloadRequest) => Promise<McpReloadResult>
   ) {}
 
   handleInbound = async (message: InboundMessage) => {
@@ -53,11 +49,22 @@ export class ConversationRouter {
   };
 
   private async processMessage(message: InboundMessage) {
+    const chat = this.storage.upsertChat({
+      channel: message.channel,
+      chatId: message.chatId
+    });
+
     if (this.mcpReloader) {
       try {
         await this.mcpReloader({
           force: false,
-          reason: "inbound:auto-sync"
+          reason: "inbound:auto-sync",
+          audit: {
+            chatFk: chat.id,
+            channel: chat.channel,
+            chatId: chat.chatId,
+            actorRole: chat.role
+          }
         });
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
@@ -66,11 +73,6 @@ export class ConversationRouter {
     }
 
     const skills = this.resolveSkills();
-
-    const chat = this.storage.upsertChat({
-      channel: message.channel,
-      chatId: message.chatId
-    });
 
     const executionNow = nowIso();
     const execution = this.storage.startInboundExecution({
