@@ -7,6 +7,80 @@
 Lightweight but capable TypeScript bot architecture.
 Single-process by default, tool- and skill-driven, MCP-ready, and safe-by-default.
 
+## Reliability Positioning
+
+Corebot is optimized for the **single-host reliable AI bot** track:
+
+- one process, one local SQLite, one workspace
+- durable queue + retries + dead-letter replay
+- idempotent publish and inbound execution ledger
+- restart-safe recovery for stale in-flight work
+- observability and audit trail built into runtime
+
+If your target is: "a bot that keeps running correctly on one machine under real failures", this repo is designed for that.
+
+## Delivery Semantics (What Is Guaranteed)
+
+| Scenario                            | Semantics                                 | Mechanism                                               |
+| ----------------------------------- | ----------------------------------------- | ------------------------------------------------------- |
+| Inbound/outbound enqueue            | At-least-once enqueue attempt             | Durable `message_queue` + retry                         |
+| Duplicate publish (same message id) | Deduplicated enqueue                      | `message_dedupe` unique key                             |
+| Inbound re-processing after crash   | Effectively-once runtime side effect      | `inbound_executions` ledger + deterministic outbound id |
+| Tool execution retries              | At-least-once execution attempt           | Bus retry / dead-letter policy                          |
+| Scheduled task dispatch             | At-least-once dispatch attempt            | Scheduler emits synthetic inbound + retry path          |
+| Heartbeat alerts                    | Suppressed if pure ACK / recent duplicate | `ackToken` gate + delivery dedupe window                |
+
+Notes:
+
+- "Effectively-once" here means duplicate deliveries are neutralized by idempotency guards inside Corebot; external side effects still need idempotent tool design.
+- Queue dead-letter is an explicit stop condition, not silent drop.
+
+## Failure Model and Recovery
+
+Corebot handles the following failure classes by default:
+
+1. **Process crash during message handling**
+   Result: stale `processing` messages are recovered on restart and re-queued.
+2. **LLM/tool transient failure**
+   Result: exponential retry until `maxAttempts`, then dead-letter with error reason.
+3. **Duplicate inbound/outbound publish**
+   Result: dedupe key collapses duplicates to one queue record.
+4. **Router crash after runtime completed**
+   Result: inbound ledger serves cached result; runtime/tools are not re-executed.
+5. **Queue overload**
+   Result: overload backoff and configurable queue caps; overflow goes to dead-letter.
+6. **Schema migration failure**
+   Result: startup stops and reports pre-migration backup path for restore.
+
+## Production Baseline (Single Host)
+
+Use this as the minimum reliable baseline:
+
+```json
+{
+  "storeFullMessages": true,
+  "bus": {
+    "maxAttempts": 5,
+    "processingTimeoutMs": 120000,
+    "maxPendingInbound": 5000,
+    "maxPendingOutbound": 5000
+  },
+  "observability": {
+    "enabled": true,
+    "http": { "enabled": true, "host": "127.0.0.1", "port": 3210 }
+  },
+  "slo": {
+    "enabled": true
+  }
+}
+```
+
+Also recommended:
+
+- persist both `data/` and `workspace/`
+- enable webhook auth if webhook channel is exposed
+- set `COREBOT_MCP_ALLOWED_SERVERS` / `COREBOT_MCP_ALLOWED_TOOLS` in production
+
 ## Features
 
 - **Agent runtime** with tool-calling loop
@@ -298,6 +372,7 @@ You can configure via `config.json` or environment variables.
 - `COREBOT_WEBHOOK_MAX_BODY_BYTES`
 
 Notes:
+
 - `COREBOT_ALLOWED_ENV` is used by tools that explicitly gate env access (for example `web.search`) and by isolated `shell.exec` workers.
 - `COREBOT_SHELL_ALLOWLIST` matches executable names (for example `ls,git`), not full command prefixes.
 - `COREBOT_WEB_ALLOWLIST` restricts `web.fetch` target hosts (exact host or subdomain match).
@@ -316,24 +391,26 @@ Notes:
 
 ## Deployment Guide
 
-1) **Build**  
+1. **Build**
+
 ```bash
 pnpm install --frozen-lockfile
 pnpm run build
 ```
 
-2) **Run**
+2. **Run**
+
 ```bash
 export OPENAI_API_KEY=YOUR_KEY
 node dist/bin.js
 # Or directly: node dist/main.js
 ```
 
-3) **Persist data**  
-Ensure `data/` and `workspace/` are persisted (bind mount or volume). Corebot auto-creates them if missing.
+3. **Persist data**  
+   Ensure `data/` and `workspace/` are persisted (bind mount or volume). Corebot auto-creates them if missing.
 
-4) **Config**  
-Use `config.json` for stable configuration in production; use env vars for secrets.
+4. **Config**  
+   Use `config.json` for stable configuration in production; use env vars for secrets.
 
 ## Docker
 
@@ -401,74 +478,74 @@ jobs:
 
 #### File System
 
-| Tool | Parameters | Description |
-|------|-----------|-------------|
-| `fs.read` | `path: string` | Read a text file within the workspace |
+| Tool       | Parameters                                                                                | Description                            |
+| ---------- | ----------------------------------------------------------------------------------------- | -------------------------------------- |
+| `fs.read`  | `path: string`                                                                            | Read a text file within the workspace  |
 | `fs.write` | `path: string`, `content: string`, `mode?: "overwrite"\|"append"` (default `"overwrite"`) | Write a text file within the workspace |
-| `fs.list` | `path?: string` (default `"."`) | List files in a workspace directory |
+| `fs.list`  | `path?: string` (default `"."`)                                                           | List files in a workspace directory    |
 
 #### Shell
 
-| Tool | Parameters | Description |
-|------|-----------|-------------|
+| Tool         | Parameters                                                                          | Description                                                                     |
+| ------------ | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
 | `shell.exec` | `command: string`, `cwd?: string`, `timeoutMs?: number` (default 20000, max 120000) | Execute a command. Disabled by default; requires `allowShell=true`. Admin only. |
 
 Commands are tokenized and executed directly (no shell interpreter). If `allowedShellCommands` is non-empty, only listed executable names are permitted.
 
 #### Web
 
-| Tool | Parameters | Description |
-|------|-----------|-------------|
-| `web.fetch` | `url: string`, `method?: "GET"\|"POST"` (default `"GET"`), `headers?: Record<string,string>`, `body?: string`, `timeoutMs?: number` (default 15000), `maxResponseChars?: number` (default 200000) | Fetch a URL over HTTP |
-| `web.search` | `query: string`, `count?: number` (default 5, max 10) | Search the web using Brave Search API. Requires `BRAVE_API_KEY` in `allowedEnv`. |
+| Tool         | Parameters                                                                                                                                                                                        | Description                                                                      |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `web.fetch`  | `url: string`, `method?: "GET"\|"POST"` (default `"GET"`), `headers?: Record<string,string>`, `body?: string`, `timeoutMs?: number` (default 15000), `maxResponseChars?: number` (default 200000) | Fetch a URL over HTTP                                                            |
+| `web.search` | `query: string`, `count?: number` (default 5, max 10)                                                                                                                                             | Search the web using Brave Search API. Requires `BRAVE_API_KEY` in `allowedEnv`. |
 
 #### Memory
 
-| Tool | Parameters | Description |
-|------|-----------|-------------|
-| `memory.read` | `scope?: "global"\|"chat"\|"all"` (default `"all"`) | Read memory content |
+| Tool           | Parameters                                                                                                          | Description                               |
+| -------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `memory.read`  | `scope?: "global"\|"chat"\|"all"` (default `"all"`)                                                                 | Read memory content                       |
 | `memory.write` | `scope?: "global"\|"chat"` (default `"chat"`), `content: string`, `mode?: "append"\|"replace"` (default `"append"`) | Write memory. Global scope is admin only. |
 
 Memory files: `workspace/memory/MEMORY.md` (global), `workspace/memory/{channel}_{chatId}.md` (per-chat).
 
 #### Messaging
 
-| Tool | Parameters | Description |
-|------|-----------|-------------|
-| `message.send` | `content: string`, `channel?: string`, `chatId?: string` | Send a message. Cross-chat sending is admin only. |
+| Tool            | Parameters                                                                                 | Description                                                          |
+| --------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| `message.send`  | `content: string`, `channel?: string`, `chatId?: string`                                   | Send a message. Cross-chat sending is admin only.                    |
 | `chat.register` | `channel?: string`, `chatId?: string`, `role?: "admin"\|"normal"`, `bootstrapKey?: string` | Register a chat for full message storage. See Admin Bootstrap below. |
-| `chat.set_role` | `channel: string`, `chatId: string`, `role: "admin"\|"normal"` | Set chat role. Admin only. |
+| `chat.set_role` | `channel: string`, `chatId: string`, `role: "admin"\|"normal"`                             | Set chat role. Admin only.                                           |
 
 #### Tasks
 
-| Tool | Parameters | Description |
-|------|-----------|-------------|
-| `tasks.schedule` | `prompt: string`, `scheduleType: "cron"\|"interval"\|"once"`, `scheduleValue: string`, `contextMode?: "group"\|"isolated"` (default `"group"`) | Create a scheduled task |
-| `tasks.list` | `includeInactive?: boolean` (default `true`) | List tasks for this chat |
-| `tasks.update` | `taskId: string`, `status?: "active"\|"paused"\|"done"`, `scheduleType?`, `scheduleValue?`, `contextMode?` | Update a task. Cross-chat updates are admin only. |
+| Tool             | Parameters                                                                                                                                     | Description                                       |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `tasks.schedule` | `prompt: string`, `scheduleType: "cron"\|"interval"\|"once"`, `scheduleValue: string`, `contextMode?: "group"\|"isolated"` (default `"group"`) | Create a scheduled task                           |
+| `tasks.list`     | `includeInactive?: boolean` (default `true`)                                                                                                   | List tasks for this chat                          |
+| `tasks.update`   | `taskId: string`, `status?: "active"\|"paused"\|"done"`, `scheduleType?`, `scheduleValue?`, `contextMode?`                                     | Update a task. Cross-chat updates are admin only. |
 
 `scheduleValue` format: cron expression for `cron`, milliseconds string for `interval`, ISO datetime for `once`.
 
 #### Skills Management
 
-| Tool | Parameters | Description |
-|------|-----------|-------------|
-| `skills.list` | *(none)* | List available skills with enabled status |
-| `skills.read` | `name: string` | Read a skill file content |
-| `skills.enable` | `name: string` | Enable a skill for this chat |
+| Tool             | Parameters     | Description                                        |
+| ---------------- | -------------- | -------------------------------------------------- |
+| `skills.list`    | _(none)_       | List available skills with enabled status          |
+| `skills.read`    | `name: string` | Read a skill file content                          |
+| `skills.enable`  | `name: string` | Enable a skill for this chat                       |
 | `skills.disable` | `name: string` | Disable a skill (always-skills cannot be disabled) |
-| `skills.enabled` | *(none)* | List currently enabled skill names |
+| `skills.enabled` | _(none)_       | List currently enabled skill names                 |
 
 #### Admin Tools
 
-| Tool | Parameters | Description |
-|------|-----------|-------------|
-| `heartbeat.status` | *(none)* | Show heartbeat runtime status, config, and next due chats. Admin only. |
-| `heartbeat.trigger` | `reason?: string`, `force?: boolean`, `channel?: string`, `chatId?: string` | Queue an immediate heartbeat wake (optional force and target chat). Admin only. |
-| `heartbeat.enable` | `enabled: boolean`, `reason?: string` | Enable/disable runtime heartbeat loop without restart. Admin only. |
-| `mcp.reload` | `reason?: string`, `force?: boolean` (default `true`) | Reload MCP config and re-register tools. Set `force=false` to respect no-change checks and failure backoff. Admin only. |
-| `bus.dead_letter.list` | `direction?: "inbound"\|"outbound"`, `limit?: number` (default 20) | List dead-letter queue entries. Admin only. |
-| `bus.dead_letter.replay` | `queueId?: string`, `direction?: "inbound"\|"outbound"`, `limit?: number` (default 10) | Replay dead-letter entries back to pending. Admin only. |
+| Tool                     | Parameters                                                                             | Description                                                                                                             |
+| ------------------------ | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `heartbeat.status`       | _(none)_                                                                               | Show heartbeat runtime status, config, and next due chats. Admin only.                                                  |
+| `heartbeat.trigger`      | `reason?: string`, `force?: boolean`, `channel?: string`, `chatId?: string`            | Queue an immediate heartbeat wake (optional force and target chat). Admin only.                                         |
+| `heartbeat.enable`       | `enabled: boolean`, `reason?: string`                                                  | Enable/disable runtime heartbeat loop without restart. Admin only.                                                      |
+| `mcp.reload`             | `reason?: string`, `force?: boolean` (default `true`)                                  | Reload MCP config and re-register tools. Set `force=false` to respect no-change checks and failure backoff. Admin only. |
+| `bus.dead_letter.list`   | `direction?: "inbound"\|"outbound"`, `limit?: number` (default 20)                     | List dead-letter queue entries. Admin only.                                                                             |
+| `bus.dead_letter.replay` | `queueId?: string`, `direction?: "inbound"\|"outbound"`, `limit?: number` (default 10) | Replay dead-letter entries back to pending. Admin only.                                                                 |
 
 ## Security Model
 
@@ -489,25 +566,25 @@ The first admin is created through a bootstrap flow:
 
 ### Permission Matrix
 
-| Capability | Normal | Admin |
-|-----------|--------|-------|
-| File read/write/list (within workspace) | Yes | Yes |
-| File write to protected paths | No | Yes |
-| Shell execution | No | Yes |
-| Web fetch (policy-restricted) | Yes | Yes |
-| Memory write (chat scope) | Yes | Yes |
-| Memory write (global scope) | No | Yes |
-| Send message (same chat) | Yes | Yes |
-| Send message (cross-chat) | No | Yes |
-| Register own chat | Yes | Yes |
-| Register other chats | No | Yes |
-| Update own tasks | Yes | Yes |
-| Update other chats' tasks | No | Yes |
-| Heartbeat control/status tools | No | Yes |
-| MCP tool execution | No | Yes |
-| MCP reload | No | Yes |
-| Dead-letter queue operations | No | Yes |
-| Set chat roles | No | Yes |
+| Capability                              | Normal | Admin |
+| --------------------------------------- | ------ | ----- |
+| File read/write/list (within workspace) | Yes    | Yes   |
+| File write to protected paths           | No     | Yes   |
+| Shell execution                         | No     | Yes   |
+| Web fetch (policy-restricted)           | Yes    | Yes   |
+| Memory write (chat scope)               | Yes    | Yes   |
+| Memory write (global scope)             | No     | Yes   |
+| Send message (same chat)                | Yes    | Yes   |
+| Send message (cross-chat)               | No     | Yes   |
+| Register own chat                       | Yes    | Yes   |
+| Register other chats                    | No     | Yes   |
+| Update own tasks                        | Yes    | Yes   |
+| Update other chats' tasks               | No     | Yes   |
+| Heartbeat control/status tools          | No     | Yes   |
+| MCP tool execution                      | No     | Yes   |
+| MCP reload                              | No     | Yes   |
+| Dead-letter queue operations            | No     | Yes   |
+| Set chat roles                          | No     | Yes   |
 
 ### Protected Workspace Paths
 
@@ -556,7 +633,9 @@ tools:
   - web.search
   - web.fetch
 ---
+
 # Web Research Skill
+
 ...
 ```
 
@@ -607,8 +686,27 @@ Tasks support:
 - `once` (ISO datetime)
 
 Scheduler emits synthetic inbound messages with `context_mode`:
+
 - `group`: include chat context
 - `isolated`: minimal context
+
+## Reliability Metrics to Watch
+
+For single-host reliability, track these first:
+
+1. `corebot_queue_pending{direction="inbound"}`
+2. `corebot_queue_dead_letter{direction="inbound"}`
+3. `corebot_tools_failure_rate`
+4. `corebot_scheduler_max_delay_ms`
+5. `corebot_mcp_failure_rate`
+6. `corebot_heartbeat_scope_sent_total{scope="delivery"}`
+7. `corebot_heartbeat_scope_skipped_total{scope="delivery"}`
+
+Fast interpretation:
+
+- rising inbound pending with flat throughput means handler bottleneck or provider slowdown
+- rising dead-letter means retries are exhausted and manual replay/recovery is needed
+- heartbeat sent drops to zero while skipped rises usually indicates ACK suppression or duplicate suppression dominating
 
 ## Operations
 
