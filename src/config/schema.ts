@@ -119,6 +119,7 @@ export const ConfigSchema = z.object({
   blockedWebPorts: z.array(z.number().int().min(1).max(65535)).default([]),
   allowedMcpServers: z.array(z.string()).default([]),
   allowedMcpTools: z.array(z.string()).default([]),
+  allowedChannelIdentities: z.array(z.string()).default([]),
   adminBootstrapKey: z.string().optional(),
   adminBootstrapSingleUse: z.boolean().default(true),
   adminBootstrapMaxAttempts: z.number().int().min(1).max(20).default(5),

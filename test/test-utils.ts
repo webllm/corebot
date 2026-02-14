@@ -129,6 +129,7 @@ export const createConfig = (
     blockedWebPorts: [],
     allowedMcpServers: [],
     allowedMcpTools: [],
+    allowedChannelIdentities: [],
     adminBootstrapKey: undefined,
     adminBootstrapSingleUse: true,
     adminBootstrapMaxAttempts: 5,

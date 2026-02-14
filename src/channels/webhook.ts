@@ -5,6 +5,7 @@ import type { Config } from "../config/schema.js";
 import type { MessageBus } from "../bus/bus.js";
 import type { Logger } from "pino";
 import type { Channel } from "./base.js";
+import { isChannelIdentityAllowed } from "./allowlist.js";
 
 type OutboundEnvelope = {
   id: string;
@@ -144,6 +145,13 @@ export class WebhookChannel implements Channel {
 
     const senderId =
       typeof body.senderId === "string" && body.senderId.trim() ? body.senderId : "webhook-user";
+    const allowed = isChannelIdentityAllowed(this.config.allowedChannelIdentities, senderId);
+    if (!allowed) {
+      res.writeHead(403, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "Sender is not in channel allowlist." }));
+      return;
+    }
+
     const createdAt =
       typeof body.createdAt === "string" && body.createdAt.trim() ? body.createdAt : nowIso();
     const inboundId =

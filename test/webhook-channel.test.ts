@@ -200,3 +200,53 @@ test("WebhookChannel enforces auth token when configured", async () => {
     fixture.cleanup();
   }
 });
+
+test("WebhookChannel enforces configured channel identity allowlist", async () => {
+  const fixture = createStorageFixture({
+    allowedChannelIdentities: ["@alice", "42|service-bot"],
+    webhook: {
+      enabled: true,
+      host: "127.0.0.1",
+      port: await getFreePort(),
+      path: "/allow",
+      authToken: undefined
+    }
+  });
+
+  const bus = new MessageBus(fixture.storage, fixture.config, logger);
+  const channel = new WebhookChannel(fixture.config);
+
+  try {
+    await channel.start(bus, logger);
+    const base = `http://${fixture.config.webhook.host}:${fixture.config.webhook.port}${fixture.config.webhook.path}`;
+
+    const denied = await fetch(base, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        chatId: "c-denied",
+        senderId: "7|mallory",
+        content: "no"
+      })
+    });
+    assert.equal(denied.status, 403);
+
+    const allowed = await fetch(base, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        chatId: "c-ok",
+        senderId: "7|alice",
+        content: "ok"
+      })
+    });
+    assert.equal(allowed.status, 202);
+  } finally {
+    await channel.stop();
+    fixture.cleanup();
+  }
+});

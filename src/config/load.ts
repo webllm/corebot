@@ -211,6 +211,7 @@ export const loadConfig = (): Config => {
     blockedWebPorts: parseNumberCsv(process.env.COREBOT_WEB_BLOCKED_PORTS),
     allowedMcpServers: parseCsv(process.env.COREBOT_MCP_ALLOWED_SERVERS),
     allowedMcpTools: parseCsv(process.env.COREBOT_MCP_ALLOWED_TOOLS),
+    allowedChannelIdentities: parseCsv(process.env.COREBOT_CHANNEL_ALLOWLIST),
     adminBootstrapKey: process.env.COREBOT_ADMIN_BOOTSTRAP_KEY,
     adminBootstrapSingleUse: process.env.COREBOT_ADMIN_BOOTSTRAP_SINGLE_USE
       ? process.env.COREBOT_ADMIN_BOOTSTRAP_SINGLE_USE === "true"
