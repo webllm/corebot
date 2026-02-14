@@ -8,6 +8,7 @@ import type {
   BusQueueRecord,
   ChatRecord,
   ConversationState,
+  InboundMessage,
   TaskRunRecord,
   TaskRecord
 } from "../types.js";
@@ -1115,6 +1116,65 @@ export class SqliteStorage {
       nextRunAt: row.next_run_at,
       createdAt: row.created_at
     }));
+  }
+
+  dispatchScheduledTasks(params: {
+    dueBefore: string;
+    maxAttempts: number;
+    items: Array<{
+      taskId: string;
+      nextRunAt: string | null;
+      status: TaskRecord["status"];
+      inbound: InboundMessage;
+    }>;
+  }): { dispatched: number; taskIds: string[] } {
+    const now = nowIso();
+
+    const run = this.db.transaction(() => {
+      const taskIds: string[] = [];
+      const updateTask = this.db.prepare(
+        "UPDATE tasks SET status = ?, next_run_at = ? WHERE id = ? AND status = 'active' AND next_run_at IS NOT NULL AND next_run_at <= ?"
+      );
+      const insertQueue = this.db.prepare(
+        "INSERT INTO message_queue(id, direction, payload, status, attempts, max_attempts, available_at, created_at, updated_at, claimed_at, processed_at, dead_lettered_at, last_error) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)"
+      );
+
+      for (const item of params.items) {
+        const updated = updateTask.run(
+          item.status,
+          item.nextRunAt,
+          item.taskId,
+          params.dueBefore
+        );
+        if (updated.changes <= 0) {
+          continue;
+        }
+
+        insertQueue.run(
+          item.inbound.id,
+          "inbound",
+          JSON.stringify(item.inbound),
+          "pending",
+          0,
+          params.maxAttempts,
+          now,
+          now,
+          now,
+          null,
+          null,
+          null,
+          null
+        );
+        taskIds.push(item.taskId);
+      }
+
+      return {
+        dispatched: taskIds.length,
+        taskIds
+      };
+    });
+
+    return run();
   }
 
   logTaskRun(params: {

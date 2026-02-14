@@ -175,6 +175,14 @@ export class MessageBus {
     return this.running;
   }
 
+  wakeInbound() {
+    this.signalDirection("inbound");
+  }
+
+  wakeOutbound() {
+    this.signalDirection("outbound");
+  }
+
   private async runInboundLoop() {
     while (this.running) {
       let processed = 0;
